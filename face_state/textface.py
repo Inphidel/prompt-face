@@ -614,6 +614,8 @@ class TextBoard:
         """Replace the whole line until it is cleared. The camera face stays underneath."""
         cleaned = clean_line(text)
         with self._lock:
+            if cleaned is None and self._shown == self._emote:
+                self._shown = ""
             self._emote = cleaned
             if cleaned is not None:
                 self._shown = cleaned

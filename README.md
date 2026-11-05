@@ -112,7 +112,7 @@ From this computer:
 ./prompt-command clear
 ```
 
-`face-emote` replaces the whole line. The text is the entire emote. It is drawn at the same size and stays in the center. `--clear` returns the camera face. `face-mouth` with no argument toggles jaw and sound. Those two scripts talk to the page on localhost, so they only work on the face computer.
+`face-emote` replaces the whole line. The text is the entire emote. It is drawn at the same size and stays in the center. `--clear` returns the camera face. `emote toggle TEXT` shows that face and leaves it there. Sending the same line again clears it. A different face replaces the one that is up. `face-mouth` with no argument toggles jaw and sound. Those two scripts talk to the page on localhost, so they only work on the face computer.
 
 A Stream Deck on another computer uses the command port. The tracker prints `command port tcp://0.0.0.0:8772` when that port is open. Point the button at the face computer's address, port 8772, and send one line of text followed by a newline:
 
@@ -126,6 +126,7 @@ mute
 mute on
 mute off
 emote ¯\_(ツ)_/¯
+emote toggle ¯\_(ツ)_/¯
 emote --clear
 clear
 status
@@ -148,7 +149,7 @@ ok mouth=jaw hearing=no muted=off mode=live expression=closed line=( •_•)
 
 `hearing=yes` means the capture is running. `hearing=no` means the capture is closed. Mute does not change that.
 
-The Companion module for these buttons is https://github.com/Inphidel/companion-module-prompt-face . Its presets replace a raw TCP button: mute, a key that shows the live face, and a hold-to-show emote with a text field.
+The Companion module for these buttons is https://github.com/Inphidel/companion-module-prompt-face . Its presets replace a raw TCP button: mute, a key that shows the live face, a hold-to-show emote, and a toggle emote that stays until the next press.
 
 ```bash
 printf 'mouth toggle\n' | nc 192.168.1.20 8772

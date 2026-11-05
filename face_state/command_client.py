@@ -63,6 +63,7 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(
             "usage: prompt-command [--host HOST] [--port PORT] mouth toggle\n"
             "       prompt-command emote TEXT\n"
+            "       prompt-command emote toggle TEXT\n"
             "       prompt-command emote --clear"
         )
     host, port = default_target()

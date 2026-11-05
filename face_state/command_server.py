@@ -21,13 +21,16 @@ switches to the muted slot, and Advanced Scene Switcher hears
     mute on
     mute off
     emote TEXT
+    emote toggle TEXT
     emote --clear
     clear
     status
     ping
 
 ``mouth`` with no word toggles. ``mouth on`` is sound and ``mouth off`` is
-jaw. When ``command.token`` is set, the line starts with that word:
+jaw. ``emote TEXT`` stays on the face until ``clear``. ``emote toggle TEXT``
+shows that face, and the same line again clears it. When
+``command.token`` is set, the line starts with that word:
 
     secret mouth sound
 """
@@ -76,9 +79,10 @@ def status_line(mouth, board) -> str:
     return f"{_mouth_reply(mouth_status)} mode={mode} expression={expression} line={line}"
 
 
-def _emote_reply(status: dict) -> str:
-    shown = status.get("text")
-    return "ok emote=live" if shown is None else f"ok emote={shown}"
+def _set_emote(board, mouth, text: str | None) -> str:
+    """Paint an emote, or clear it, and answer with the full status line."""
+    board.set_line(text)
+    return status_line(mouth, board)
 
 
 def handle_line(line: str, board, mouth, token: str = "") -> str | None:
@@ -122,14 +126,21 @@ def handle_line(line: str, board, mouth, token: str = "") -> str | None:
             return "err mouth needs jaw, sound, on, off, or toggle"
         return _mouth_reply(status)
     if command == "clear":
-        return _emote_reply(board.set_line(None))
+        return _set_emote(board, mouth, None)
     if command == "emote":
         try:
             if argument in ("--clear", "-c"):
-                return _emote_reply(board.set_line(None))
+                return _set_emote(board, mouth, None)
             if argument == "":
                 return "err emote needs text or --clear"
-            return _emote_reply(board.set_line(clean_line(argument)))
+            head, _, rest = argument.partition(" ")
+            if head == "toggle":
+                if rest == "":
+                    return "err emote toggle needs text"
+                cleaned = clean_line(rest)
+                current = board.line_status().get("text")
+                return _set_emote(board, mouth, None if current == cleaned else cleaned)
+            return _set_emote(board, mouth, clean_line(argument))
         except ValueError as error:
             return f"err {error}"
     return "err unknown command"
