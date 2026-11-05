@@ -13,6 +13,10 @@ One frame moves through four steps, all on this machine:
 4. The OBS bridge puts that panel in an image source. Stretch and rotate
    the source in OBS when the face should grow, shrink, or tilt.
 
+The microphone stays closed until a command selects sound. That command
+can arrive on the TCP command port from another computer. The expression
+page itself stays on localhost.
+
 Run the tracker with ``python -m face_state``. Run the bridge, with OBS
 open, with ``python -m face_state.obs_bridge``.
 """

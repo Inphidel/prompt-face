@@ -13,6 +13,10 @@
     "rules": "rules.json",
     "textfaces": "textfaces.json"
   },
+  "command": {
+    "listen": "0.0.0.0:8772",
+    "token": ""
+  },
   "print_scores_every": 1.0,
   "mouth": {
     "source": "jaw",

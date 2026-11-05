@@ -35,6 +35,7 @@ from mediapipe.tasks.python.vision import (
 )
 
 from face_state.author import serve_author
+from face_state.command_server import serve_commands
 from face_state.camera import Camera
 from face_state.compose import Composer
 from face_state.hand import HandMeasure
@@ -343,6 +344,8 @@ def main() -> None:
     mouth = MouthControl(config)
     page_host, page_port = str(author.get("listen", "127.0.0.1:8771")).rsplit(":", 1)
     serve_author(page_host, int(page_port), rules_path, textfaces_path, board, mouth)
+    # The page stays on localhost. This port is the one another computer uses.
+    serve_commands(config, board, mouth)
     hub = Hub()
     stop = threading.Event()
 

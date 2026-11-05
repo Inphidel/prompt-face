@@ -2,7 +2,7 @@
 
 Prompt is a text face driven by a webcam. A local program reads your face, hands, and pose, paints one line of text into a fixed panel, and OBS shows that panel. The letters stay one size. Stretch, rotate, or move the panel in OBS when you want the face larger, smaller, or tilted. The origin of the panel is its middle.
 
-The microphone can blink the mouth while you talk. A button switches that mouth between the microphone and the jaw seen by the camera. Another command replaces the whole line with a custom emote, at the same size, still centered.
+The microphone can blink the mouth while you talk. It stays closed until a command turns sound on. OBS can use that same microphone the whole time. A button, on this computer or on another one, switches the mouth between the microphone and the jaw, and another command replaces the whole line with a custom emote.
 
 Everything runs on your machine. The webcam picture is not uploaded.
 
@@ -10,7 +10,7 @@ Everything runs on your machine. The webcam picture is not uploaded.
 
 - Linux with a V4L2 webcam. `/dev/video0` is the usual device.
 - Python 3.12 or newer, with `venv`. This project is tested with Python 3.14 on Ubuntu 26.04.
-- PipeWire, including the `pw-record` command, when the mouth should follow the microphone. Jaw mode does not open a microphone.
+- PipeWire, including the `pw-record` command, when the mouth should follow the microphone. Jaw mode does not open a microphone. Sound mode adds a shared listener. OBS can keep recording the same source.
 - OBS Studio 28 or newer, with the built-in WebSocket server turned on. This project is tested with OBS 32.
 - A desktop CPU. The face, hand, and pose models run on the CPU. A GPU is not required.
 - About 25 MB for the included models, plus a few hundred MB for the Python virtual environment.
@@ -18,7 +18,7 @@ Everything runs on your machine. The webcam picture is not uploaded.
 Optional:
 
 - Advanced Scene Switcher in OBS, if you want messages such as `mouth=open` to drive macros.
-- A Stream Deck, or any button that can run a shell command, for emotes and the mouth switch.
+- A Stream Deck, or any button that can open a TCP connection. The tracker listens on port 8772. A deck attached to another computer sends one line to that port. The firewall on the face computer has to allow it.
 - Ghostty, or another terminal that accepts `-e`, if you want the desktop launchers to open a window.
 
 Windows and macOS are not supported. The camera path is V4L2 and the microphone path is PipeWire.
@@ -51,11 +51,13 @@ That writes launchers only on this machine. Run it again if you move the project
 
 In `config.json`, `camera.device` is the webcam. Leave `/dev/video0` if that is the camera you want. `width`, `height`, `fps`, and `fourcc` are requested from V4L2. `MJPG` at `1280x720` is a reliable starting point.
 
-`listen` is the state WebSocket, default `127.0.0.1:8770`. `author.listen` is the expression page, default `127.0.0.1:8771`. Keep both on localhost.
+`listen` is the state WebSocket, default `127.0.0.1:8770`. `author.listen` is the expression page, default `127.0.0.1:8771`. Keep both on localhost. `command.listen` is the network command port, default `0.0.0.0:8772`. That is the port another computer uses.
 
 ### Mouth
 
-`mouth.source` is `jaw` or `sound`. `jaw` follows the mouth the camera sees. `sound` follows microphone loudness.
+`mouth.source` starts as `jaw`. Jaw follows the mouth the camera sees, and the tracker does not open the microphone. `sound` follows microphone loudness. The capture process is `pw-record`. It starts when a command selects sound, and it exits when a command selects jaw.
+
+PipeWire lets more than one program record a source. Prompt Face does not take the microphone away from OBS. In jaw mode there is no capture at all. In sound mode OBS and Prompt Face both listen, and OBS keeps the audio for the stream.
 
 `mouth.device` is a PipeWire source name. Leave it empty to use the default source. If that default is the webcam microphone, set it to the input you speak into. `wpctl status` lists the sources. A node name looks like `alsa_input.usb-...`. The tracker opens the microphone only while sound mode is on.
 
@@ -93,9 +95,11 @@ Arms have four marks: left up, left down, right up, and right down. A down or un
 
 `rules.json` starts empty. A rule can send `name=on` and `name=off` to Advanced Scene Switcher, and a rule can carry its own face text.
 
-### Buttons
+### Commands
 
-From this directory, with the tracker running:
+The tracker has to be running. The expression page on this computer has the same mouth switch, at http://127.0.0.1:8771 .
+
+From this computer:
 
 ```bash
 ./face-emote '¯\_(ツ)_/¯'
@@ -103,13 +107,50 @@ From this directory, with the tracker running:
 ./face-mouth
 ./face-mouth jaw
 ./face-mouth sound
+./prompt-command mouth toggle
+./prompt-command emote '¯\_(ツ)_/¯'
+./prompt-command clear
 ```
 
-`face-emote` replaces the whole line. The text is the entire emote. It is drawn at the same size and stays in the center. `--clear` returns the camera face. `face-mouth` with no argument toggles jaw and sound.
+`face-emote` replaces the whole line. The text is the entire emote. It is drawn at the same size and stays in the center. `--clear` returns the camera face. `face-mouth` with no argument toggles jaw and sound. Those two scripts talk to the page on localhost, so they only work on the face computer.
 
-A Stream Deck button can run those commands. Use the full path to the script in the button, because the deck does not start in this directory. The scripts find their own folder.
+A Stream Deck on another computer uses the command port. The tracker prints `command port tcp://0.0.0.0:8772` when that port is open. Point the button at the face computer's address, port 8772, and send one line of text followed by a newline:
 
-The expression page has the same mouth switch. Open it from the Prompt page icon, or at http://127.0.0.1:8771 while the tracker is running.
+```text
+mouth toggle
+mouth jaw
+mouth sound
+mouth on
+mouth off
+emote ¯\_(ツ)_/¯
+emote --clear
+clear
+status
+ping
+```
+
+`mouth` alone toggles. `mouth on` and `mouth sound` open the microphone. `mouth off` and `mouth jaw` close it and return the mouth to the camera. The reply is one line, such as `ok mouth=jaw hearing=no` or `ok emote=live`. `hearing=yes` means the capture is running. `hearing=no` means the microphone is not open.
+
+```bash
+printf 'mouth toggle\n' | nc 192.168.1.20 8772
+```
+
+Replace `192.168.1.20` with the address of the face computer. A Stream Deck program that can send TCP, such as Bitfocus Companion's Generic TCP action, sends the same line. The stock Elgato button that only opens a web page does not send this. The button has to be a raw TCP send, or a shell command that runs the `nc` line above.
+
+On the face computer, allow the port through the firewall:
+
+```bash
+sudo ufw allow 8772/tcp comment 'prompt-face commands'
+```
+
+Devices on the same network can then connect. A router port forward is not required for a Stream Deck on that network. Anyone who can reach the port can change the face. Set `command.token` in `config.json` to a word of your own, and put that word first on every line:
+
+```text
+secret mouth sound
+secret emote hello
+```
+
+Leave the token empty if the network is already private enough. The token stays in `config.json`, which is not published.
 
 ## Run
 
@@ -145,9 +186,10 @@ The package is `face_state`. Comments at the top of each module describe that st
 5. `textface.py` picks the face string, the arm marks, or a whole-line emote.
 6. `paint.py` draws that line in the middle of a 1400 by 180 panel. The font size stays put. Arms grow outward and clip at the edge.
 7. `obs_bridge.py` writes the panel into the OBS image source and can message Advanced Scene Switcher.
-8. `voice.py` reads the microphone with `pw-record` when the mouth source is sound.
-9. `author.py` serves the expression page and the emote and mouth commands.
-10. `server.py` publishes the state JSON on the WebSocket.
+8. `voice.py` reads the microphone with `pw-record` only while the mouth source is sound. Closing sound mode stops that process.
+9. `command_server.py` listens on TCP port 8772 for mouth and emote lines from another computer.
+10. `author.py` serves the expression page on localhost.
+11. `server.py` publishes the state JSON on the localhost WebSocket.
 
 `compose.py` is the rule list. A rule names the returns it cares about. While they hold, OBS can hear `name=on`. When they let go, it hears `name=off`.
 

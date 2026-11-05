@@ -2,8 +2,12 @@
 
 An empty device name tells pw-record to use the default PipeWire source.
 Set mouth.device in config.json when that default is the webcam microphone
-and the voice should come from another input. The tracker opens the
-microphone only while the mouth source is sound.
+and the voice should come from another input.
+
+The capture starts only after the mouth source is switched to sound, and it
+stops again on jaw. pw-record is one more PipeWire listener. It does not
+take the device away from OBS or from any other program that is already
+recording that source.
 """
 
 from __future__ import annotations
@@ -74,12 +78,19 @@ class VoiceEar:
             return self._hearing
 
     def start(self) -> None:
+        """Open the shared capture and wait until it is up, or has failed."""
         if self._thread and self._thread.is_alive():
             return
         self._stop.clear()
         self._warned = False
         self._thread = threading.Thread(target=self._run, name="face-state-voice", daemon=True)
         self._thread.start()
+        # The command reply should say whether the microphone actually opened.
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            if self.hearing() or self._warned:
+                return
+            time.sleep(0.02)
 
     def stop(self) -> None:
         self._stop.set()
