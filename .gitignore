@@ -1,0 +1,14 @@
+venv/
+__pycache__/
+*.pyc
+*.tmp
+
+# This machine's camera and microphone. config.example.json is the template.
+config.json
+
+# Frames the OBS bridge paints while it is running.
+panel/
+
+# Optional pictures for a face. The note stays. The pictures do not.
+images/*
+!images/README.md

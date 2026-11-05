@@ -1,0 +1,512 @@
+"""Push face states into OBS.
+
+The scene named in obs.json (Avatar, unless that file says otherwise) gets
+one image source, Prompt. The face is painted in the middle of that image
+at a fixed font size. Once the source is centered and has no fit-to-box
+bounds, later connections leave its position, scale, and rotation alone.
+Stretch or rotate it in OBS. That is the only size change.
+
+OBS does not reload an image when the path stays the same, so the bridge
+alternates panel/prompt-a.png and panel/prompt-b.png.
+
+Each changed state is also sent to Advanced Scene Switcher as a message
+such as "mouth=open", which a macro can match. The websocket password stays
+in ~/.config/face-state/obs.json, outside this project.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import base64
+import hashlib
+import json
+import time
+import uuid
+from pathlib import Path
+
+import websockets
+
+from face_state.paint import paint_panel
+from face_state.reduce import DETAIL, FIELDS
+
+SCENE = "Avatar"
+FACE_TEXT = "Face text"
+PANEL = "Prompt"
+FACE_FONT = "Face Text"
+ROOT = Path(__file__).resolve().parent.parent
+PANEL_DIR = ROOT / "panel"
+OBS_CONFIG = Path.home() / ".config" / "face-state" / "obs.json"
+TRACKER_URL = "ws://127.0.0.1:8770/state"
+ALIGN_LEFT = 1
+ALIGN_RIGHT = 2
+ALIGN_TOP = 4
+ALIGN_BOTTOM = 8
+
+
+def load_obs_config() -> dict:
+    """Read the OBS websocket settings. The password is never printed."""
+    if not OBS_CONFIG.exists():
+        raise SystemExit(
+            "OBS settings are missing. Copy obs.example.json to "
+            "~/.config/face-state/obs.json and set the websocket password "
+            "from Tools, WebSocket Server Settings."
+        )
+    with OBS_CONFIG.open() as handle:
+        return json.load(handle)
+
+
+def configure_names(config: dict) -> None:
+    """Scene and panel names. Defaults keep an existing Avatar / Prompt setup."""
+    global SCENE, PANEL
+    scene = config.get("scene")
+    panel = config.get("panel")
+    if isinstance(scene, str) and scene.strip():
+        SCENE = scene.strip()
+    if isinstance(panel, str) and panel.strip():
+        PANEL = panel.strip()
+
+
+def obs_rgba(value, default: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+    """OBS packs color as AABBGGRR in one integer."""
+    try:
+        color = int(value)
+    except (TypeError, ValueError):
+        return default
+    return (color & 255, (color >> 8) & 255, (color >> 16) & 255, (color >> 24) & 255)
+
+
+def visual_center(transform: dict) -> tuple[float, float]:
+    """The middle of the box that is on screen."""
+    align = int(transform.get("alignment") or 0)
+    use_bounds = (transform.get("boundsType") or "OBS_BOUNDS_NONE") != "OBS_BOUNDS_NONE"
+    if use_bounds:
+        width = float(transform.get("boundsWidth") or 0)
+        height = float(transform.get("boundsHeight") or 0)
+    else:
+        width = float(transform.get("width") or transform.get("sourceWidth") or 0)
+        height = float(transform.get("height") or transform.get("sourceHeight") or 0)
+    x = float(transform.get("positionX") or 0)
+    y = float(transform.get("positionY") or 0)
+    if align & ALIGN_RIGHT:
+        cx = x - width / 2
+    elif align & ALIGN_LEFT:
+        cx = x + width / 2
+    else:
+        cx = x
+    if align & ALIGN_BOTTOM:
+        cy = y - height / 2
+    elif align & ALIGN_TOP:
+        cy = y + height / 2
+    else:
+        cy = y
+    return cx, cy
+
+
+def content_scale(transform: dict) -> tuple[float, float]:
+    """How big the glyphs are, after a fit-to-box scale."""
+    sx = float(transform.get("scaleX") or 1)
+    sy = float(transform.get("scaleY") or 1)
+    bounds = transform.get("boundsType") or "OBS_BOUNDS_NONE"
+    if bounds == "OBS_BOUNDS_NONE":
+        return sx, sy
+    sw = float(transform.get("sourceWidth") or 0)
+    sh = float(transform.get("sourceHeight") or 0)
+    bw = float(transform.get("boundsWidth") or 0)
+    bh = float(transform.get("boundsHeight") or 0)
+    if sw < 1 or sh < 1 or bw < 1 or bh < 1:
+        return sx, sy
+    if bounds == "OBS_BOUNDS_STRETCH":
+        return sx * bw / sw, sy * bh / sh
+    if bounds == "OBS_BOUNDS_SCALE_OUTER":
+        fit = max(bw / sw, bh / sh)
+    elif bounds == "OBS_BOUNDS_SCALE_TO_WIDTH":
+        fit = bw / sw
+    elif bounds == "OBS_BOUNDS_SCALE_TO_HEIGHT":
+        fit = bh / sh
+    else:
+        fit = min(bw / sw, bh / sh)
+    return sx * fit, sy * fit
+
+
+def auth_string(password: str, salt: str, challenge: str) -> str:
+    secret = base64.b64encode(hashlib.sha256((password + salt).encode()).digest())
+    return base64.b64encode(hashlib.sha256(secret + challenge.encode()).digest()).decode()
+
+
+class Obs:
+    def __init__(self, url: str, password: str):
+        self.url = url
+        self.password = password
+        self.ws = None
+        self.item_ids: dict[str, int] = {}
+        self.face_text = False
+        self.panel = False
+        self.font_px = 80
+        self.outline_px = 4
+        self.fill = (255, 255, 255, 255)
+        self.stroke = (0, 0, 0, 255)
+        self._flip = False
+        self._paint_key = None
+
+    async def connect(self) -> None:
+        self.ws = await websockets.connect(self.url)
+        hello = json.loads(await self.ws.recv())
+        if hello.get("op") != 0:
+            raise RuntimeError(f"unexpected OBS hello: {hello}")
+        identify = {"op": 1, "d": {"rpcVersion": 1, "eventSubscriptions": 0}}
+        auth = hello["d"].get("authentication")
+        if auth:
+            identify["d"]["authentication"] = auth_string(
+                self.password, auth["salt"], auth["challenge"]
+            )
+        await self.ws.send(json.dumps(identify))
+        identified = json.loads(await self.ws.recv())
+        if identified.get("op") != 2:
+            raise RuntimeError(f"OBS refused the connection: {identified}")
+        self.item_ids = {}
+        try:
+            await self.ensure_face_text()
+            await self.ensure_panel()
+        except (OSError, websockets.ConnectionClosed, RuntimeError, KeyError) as error:
+            self.face_text = False
+            print(f"face text source was not created: {error}", flush=True)
+        print("OBS connected", flush=True)
+
+    async def ensure_face_text(self) -> None:
+        listed = await self.request("GetInputList", {})
+        if not listed["requestStatus"]["result"]:
+            self.face_text = False
+            print(f"could not list inputs: {listed['requestStatus']}", flush=True)
+            return
+        names = {item.get("inputName") for item in listed["responseData"].get("inputs", [])}
+        if FACE_TEXT in names:
+            self.face_text = True
+            await self.remember_item(FACE_TEXT)
+            await self.use_face_font()
+            item_id = self.item_ids.get(FACE_TEXT)
+            if item_id is not None:
+                await self.request("SetSceneItemEnabled", {
+                    "sceneName": SCENE,
+                    "sceneItemId": item_id,
+                    "sceneItemEnabled": True,
+                })
+            print("face text source already present", flush=True)
+            return
+        created = await self.request("CreateInput", {
+            "sceneName": SCENE,
+            "inputName": FACE_TEXT,
+            "inputKind": "text_ft2_source_v2",
+            "inputSettings": {
+                "text": "",
+                "font": {"face": FACE_FONT, "style": "Regular", "size": 80, "flags": 0},
+                "outline": True,
+                "outline_size": 4,
+                "outline_color": 4278190080,
+                "color1": 4294967295,
+                "color2": 4294967295,
+            },
+            "sceneItemEnabled": True,
+        })
+        if not created["requestStatus"]["result"]:
+            self.face_text = False
+            print(f"face text source was not created: {created['requestStatus']}", flush=True)
+            return
+        self.face_text = True
+        found = await self.request("GetSceneItemId", {"sceneName": SCENE, "sourceName": FACE_TEXT})
+        if not found["requestStatus"]["result"]:
+            print(f"face text has no scene item: {found['requestStatus']}", flush=True)
+            return
+        item_id = found["responseData"]["sceneItemId"]
+        self.item_ids[FACE_TEXT] = item_id
+        current = await self.request("GetSceneItemTransform", {
+            "sceneName": SCENE,
+            "sceneItemId": item_id,
+        })
+        if not current["requestStatus"]["result"]:
+            print(f"face text transform was not read: {current['requestStatus']}", flush=True)
+            return
+        transform = current["responseData"]["sceneItemTransform"]
+        transform["positionX"] = 640.0
+        transform["positionY"] = 180.0
+        # A new text item can report a zero bounds box, which OBS rejects.
+        if float(transform.get("boundsWidth") or 0) < 1:
+            transform["boundsWidth"] = 1200.0
+        if float(transform.get("boundsHeight") or 0) < 1:
+            transform["boundsHeight"] = 200.0
+        for key in ("scaleX", "scaleY"):
+            if abs(float(transform.get(key) or 0)) < 0.01:
+                transform[key] = 1.0
+        moved = await self.request("SetSceneItemTransform", {
+            "sceneName": SCENE,
+            "sceneItemId": item_id,
+            "sceneItemTransform": transform,
+        })
+        if not moved["requestStatus"]["result"]:
+            print(f"face text was not positioned: {moved['requestStatus']}", flush=True)
+            return
+        print("face text source created", flush=True)
+
+    async def read_font(self) -> None:
+        settings = await self.request("GetInputSettings", {"inputName": FACE_TEXT})
+        if not settings["requestStatus"]["result"]:
+            return
+        current = (settings.get("responseData") or {}).get("inputSettings") or {}
+        font = current.get("font") or {}
+        try:
+            self.font_px = max(int(font.get("size") or 80), 1)
+        except (TypeError, ValueError):
+            self.font_px = 80
+        if current.get("outline"):
+            try:
+                self.outline_px = max(int(current.get("outline_size") or 0), 0)
+            except (TypeError, ValueError):
+                self.outline_px = 4
+        else:
+            self.outline_px = 0
+        self.fill = obs_rgba(current.get("color1"), self.fill)
+        self.stroke = obs_rgba(current.get("outline_color"), self.stroke)
+
+    async def ensure_panel(self) -> None:
+        """One fixed image, centered on the old text, with no fit-to-text scale."""
+        await self.read_font()
+        listed = await self.request("GetInputList", {})
+        if not listed["requestStatus"]["result"]:
+            print(f"could not list inputs: {listed['requestStatus']}", flush=True)
+            return
+        names = {item.get("inputName") for item in listed["responseData"].get("inputs", [])}
+        placeholder = PANEL_DIR / "prompt-a.png"
+        paint_panel("", "_", "_", placeholder, font_px=self.font_px, outline=self.outline_px, fill=self.fill, stroke=self.stroke)
+        if PANEL not in names:
+            created = await self.request("CreateInput", {
+                "sceneName": SCENE,
+                "inputName": PANEL,
+                "inputKind": "image_source",
+                "inputSettings": {"file": str(placeholder), "unload": False, "linear_alpha": False},
+                "sceneItemEnabled": True,
+            })
+            if not created["requestStatus"]["result"]:
+                print(f"prompt panel was not created: {created['requestStatus']}", flush=True)
+                return
+        self.panel = True
+        item_id = await self.remember_item(PANEL)
+        if item_id is None:
+            self.panel = False
+            return
+        current = await self.request("GetSceneItemTransform", {
+            "sceneName": SCENE,
+            "sceneItemId": item_id,
+        })
+        if not current["requestStatus"]["result"]:
+            print(f"prompt transform was not read: {current['requestStatus']}", flush=True)
+            return
+        transform = current["responseData"]["sceneItemTransform"]
+        # Alignment 0 is the center of the panel. Bounds none means the OBS
+        # scale and rotation are the only size change. A panel that is already
+        # set up stays where it was dragged.
+        already = (
+            int(transform.get("alignment") or 0) == 0
+            and (transform.get("boundsType") or "OBS_BOUNDS_NONE") == "OBS_BOUNDS_NONE"
+            and PANEL in names
+        )
+        if not already:
+            center, scale = await self._placed_like_text()
+            transform["alignment"] = 0
+            transform["boundsAlignment"] = 0
+            transform["boundsType"] = "OBS_BOUNDS_NONE"
+            transform["positionX"] = center[0]
+            transform["positionY"] = center[1]
+            transform["scaleX"] = scale[0]
+            transform["scaleY"] = scale[1]
+            if float(transform.get("boundsWidth") or 0) < 1:
+                transform["boundsWidth"] = 1.0
+            if float(transform.get("boundsHeight") or 0) < 1:
+                transform["boundsHeight"] = 1.0
+            moved = await self.request("SetSceneItemTransform", {
+                "sceneName": SCENE,
+                "sceneItemId": item_id,
+                "sceneItemTransform": transform,
+            })
+            if not moved["requestStatus"]["result"]:
+                print(f"prompt panel was not placed: {moved['requestStatus']}", flush=True)
+                return
+            print(
+                f"prompt panel centered at {center[0]:.0f},{center[1]:.0f} scale {scale[0]:.2f}",
+                flush=True,
+            )
+        else:
+            print("prompt panel already centered", flush=True)
+        text_id = self.item_ids.get(FACE_TEXT)
+        if text_id is None:
+            text_id = await self.remember_item(FACE_TEXT)
+        if text_id is not None:
+            await self.request("SetSceneItemEnabled", {
+                "sceneName": SCENE,
+                "sceneItemId": text_id,
+                "sceneItemEnabled": False,
+            })
+
+    async def _placed_like_text(self) -> tuple[tuple[float, float], tuple[float, float]]:
+        text_id = self.item_ids.get(FACE_TEXT)
+        if text_id is None:
+            return (960.0, 540.0), (1.0, 1.0)
+        current = await self.request("GetSceneItemTransform", {
+            "sceneName": SCENE,
+            "sceneItemId": text_id,
+        })
+        if not current["requestStatus"]["result"]:
+            return (960.0, 540.0), (1.0, 1.0)
+        transform = current["responseData"]["sceneItemTransform"]
+        return visual_center(transform), content_scale(transform)
+
+    async def show_line(self, state: dict) -> None:
+        if not self.panel:
+            return
+        face = state.get("face_text")
+        if face is None:
+            face = state.get("text") or ""
+            left = ""
+            right = ""
+        else:
+            left = state.get("arm_l_text") or ""
+            right = state.get("arm_r_text") or ""
+        key = (face, left, right, self.font_px, self.outline_px, self.fill, self.stroke)
+        if key == self._paint_key:
+            return
+        # Two file names, because OBS keeps the previous picture when the
+        # path does not change.
+        self._flip = not self._flip
+        path = PANEL_DIR / ("prompt-a.png" if self._flip else "prompt-b.png")
+        paint_panel(
+            face,
+            left,
+            right,
+            path,
+            font_px=self.font_px,
+            outline=self.outline_px,
+            fill=self.fill,
+            stroke=self.stroke,
+        )
+        updated = await self.request("SetInputSettings", {
+            "inputName": PANEL,
+            "inputSettings": {"file": str(path)},
+            "overlay": True,
+        })
+        if not updated["requestStatus"]["result"]:
+            print(f"prompt panel was not updated: {updated['requestStatus']}", flush=True)
+            return
+        self._paint_key = key
+
+    async def use_face_font(self) -> None:
+        """Point the expression line at Face Text without changing its size."""
+        settings = await self.request("GetInputSettings", {"inputName": FACE_TEXT})
+        if not settings["requestStatus"]["result"]:
+            print(f"face text settings were not read: {settings['requestStatus']}", flush=True)
+            return
+        current = (settings.get("responseData") or {}).get("inputSettings") or {}
+        font = dict(current.get("font") or {})
+        if font.get("face") == FACE_FONT:
+            return
+        font["face"] = FACE_FONT
+        font["style"] = "Regular"
+        font.setdefault("size", 80)
+        font.setdefault("flags", 0)
+        updated = await self.request("SetInputSettings", {
+            "inputName": FACE_TEXT,
+            "inputSettings": {"font": font},
+            "overlay": True,
+        })
+        if not updated["requestStatus"]["result"]:
+            print(f"face text font was not changed: {updated['requestStatus']}", flush=True)
+        else:
+            print(f"face text font set to {FACE_FONT}", flush=True)
+
+    async def remember_item(self, name: str) -> int | None:
+        found = await self.request("GetSceneItemId", {"sceneName": SCENE, "sourceName": name})
+        if not found["requestStatus"]["result"]:
+            print(f"{name} has no scene item: {found['requestStatus']}", flush=True)
+            return None
+        item_id = found["responseData"]["sceneItemId"]
+        self.item_ids[name] = item_id
+        return item_id
+
+    async def request(self, request_type: str, data: dict) -> dict:
+        request_id = uuid.uuid4().hex
+        await self.ws.send(json.dumps({
+            "op": 6,
+            "d": {
+                "requestType": request_type,
+                "requestId": request_id,
+                "requestData": data,
+            },
+        }))
+        while True:
+            message = json.loads(await self.ws.recv())
+            if message.get("op") == 7 and message["d"].get("requestId") == request_id:
+                return message["d"]
+
+    async def apply(self, state: dict, fields: list[str]) -> None:
+        await self.show_line(state)
+        for name in fields:
+            sent = await self.request("CallVendorRequest", {
+                "vendorName": "AdvancedSceneSwitcher",
+                "requestType": "AdvancedSceneSwitcherMessage",
+                "requestData": {"message": f"{name}={state[name]}"},
+            })
+            if not sent["requestStatus"]["result"]:
+                print(f"scene switcher message failed: {sent['requestStatus']}", flush=True)
+
+    async def close(self) -> None:
+        if self.ws is not None:
+            await self.ws.close()
+            self.ws = None
+
+
+async def run() -> None:
+    config = load_obs_config()
+    configure_names(config)
+    obs_url = f"ws://{config['host']}:{config['port']}"
+    obs = Obs(obs_url, config["password"])
+    while True:
+        try:
+            await obs.connect()
+            async with websockets.connect(TRACKER_URL) as tracker:
+                print(f"tracker {TRACKER_URL}", flush=True)
+                first = True
+                last_text = 0.0
+                last_line = None
+                async for raw in tracker:
+                    state = json.loads(raw)
+                    names = [name for name in (*FIELDS, *DETAIL) if name in state]
+                    if first:
+                        changed = names
+                    else:
+                        changed = [
+                            name for name in (state.get("changed") or [])
+                            if name not in ("text", "text_slot", "image", "image_side") and isinstance(state.get(name), str)
+                        ]
+                    first = False
+                    now = time.monotonic()
+                    line = state.get("text")
+                    refresh = bool(changed) or line != last_line or now - last_text >= 0.3
+                    if not refresh:
+                        continue
+                    if changed:
+                        print(" ".join(f"{name}={state[name]}" for name in changed), flush=True)
+                    await obs.apply(state, changed)
+                    last_text = now
+                    last_line = line
+        except (OSError, websockets.ConnectionClosed, RuntimeError, KeyError) as error:
+            print(f"waiting: {error}", flush=True)
+            await obs.close()
+            await asyncio.sleep(2)
+
+
+def main() -> None:
+    try:
+        asyncio.run(run())
+    except KeyboardInterrupt:
+        print("stopped", flush=True)
+
+
+if __name__ == "__main__":
+    main()

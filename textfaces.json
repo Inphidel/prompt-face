@@ -1,0 +1,143 @@
+{
+  "library": "images",
+  "arms": {
+    "l_up": "°\\",
+    "l_down": " .",
+    "r_up": "/°",
+    "r_down": ". "
+  },
+  "gestures": {
+    "enabled": true,
+    "items": [
+      {
+        "id": "thumbsup",
+        "enabled": true,
+        "left": "d.",
+        "right": ".b"
+      },
+      {
+        "id": "peace",
+        "enabled": true,
+        "left": "¥.",
+        "right": ".¥"
+      },
+      {
+        "id": "point",
+        "enabled": true,
+        "left": "-─",
+        "right": "─-"
+      },
+      {
+        "id": "open",
+        "enabled": true,
+        "left": " <",
+        "right": "> "
+      }
+    ]
+  },
+  "slots": {
+    "absent": {
+      "left": "(• • )",
+      "center": "( • •)",
+      "right": "( • •)",
+      "image": {
+        "left": "",
+        "center": "",
+        "right": ""
+      },
+      "hold_ms": 500,
+      "vary_ms": 120
+    },
+    "neutral": {
+      "left": "(•_• )",
+      "center": "( •_•)",
+      "right": "( •_•)",
+      "image": {
+        "left": "",
+        "center": "",
+        "right": ""
+      }
+    },
+    "talk": {
+      "left": "(•▄• )",
+      "center": "( •▄•)",
+      "right": "( •▄•)",
+      "image": {
+        "left": "",
+        "center": "",
+        "right": ""
+      }
+    },
+    "shout": {
+      "left": "(>@< )",
+      "center": "( >@<)",
+      "right": "( >@<)",
+      "image": {
+        "left": "",
+        "center": "",
+        "right": ""
+      }
+    },
+    "smile": {
+      "left": "(•‿• )",
+      "center": "( •‿•)",
+      "right": "( •‿•)",
+      "image": {
+        "left": "",
+        "center": "",
+        "right": ""
+      }
+    },
+    "blink": {
+      "left": "(-_- )",
+      "center": "( -_-)",
+      "right": "( -_-)",
+      "image": {
+        "left": "",
+        "center": "",
+        "right": ""
+      }
+    },
+    "closed": {
+      "left": "(v_V )",
+      "center": "( V_v)",
+      "right": "( V_v)",
+      "image": {
+        "left": "",
+        "center": "",
+        "right": ""
+      }
+    },
+    "cover_l": {
+      "left": "(/_• )",
+      "center": "( /_•)",
+      "right": "( /_•)",
+      "image": {
+        "left": "",
+        "center": "",
+        "right": ""
+      }
+    },
+    "cover_r": {
+      "left": "(•_\\ )",
+      "center": "( •_\\)",
+      "right": "( •_\\)",
+      "image": {
+        "left": "",
+        "center": "",
+        "right": ""
+      }
+    },
+    "cover_both": {
+      "left": "(/_\\ )",
+      "center": "( /_\\ )",
+      "right": "( /_\\)",
+      "image": {
+        "left": "",
+        "center": "",
+        "right": ""
+      }
+    }
+  },
+  "rules": {}
+}

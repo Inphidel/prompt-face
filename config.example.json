@@ -1,0 +1,54 @@
+{
+  "camera": {
+    "device": "/dev/video0",
+    "width": 1280,
+    "height": 720,
+    "fps": 30,
+    "fourcc": "MJPG"
+  },
+  "model": "models/face_landmarker.task",
+  "listen": "127.0.0.1:8770",
+  "author": {
+    "listen": "127.0.0.1:8771",
+    "rules": "rules.json",
+    "textfaces": "textfaces.json"
+  },
+  "print_scores_every": 1.0,
+  "mouth": {
+    "source": "jaw",
+    "device": "",
+    "quiet": 0.004,
+    "loud": 0.03,
+    "attack": 0.55,
+    "release": 0.22
+  },
+  "face_hold": 3,
+  "pose": {
+    "model": "models/pose_landmarker.task",
+    "hold": 5,
+    "swap_sides": false,
+    "arm": {"enter": 0.22, "exit": 0.05, "hold": 3},
+    "hand": {"enter": 0.20, "exit": 0.05, "hold": 3, "radius": 0.65, "depth": 0.0}
+  },
+  "hands": {
+    "model": "models/hand_landmarker.task",
+    "hold": 5,
+    "label_hold": 3,
+    "min_detection_confidence": 0.5,
+    "min_presence_confidence": 0.5,
+    "min_tracking_confidence": 0.5,
+    "facing_edge": 0.35,
+    "facing_sign": 1,
+    "depth": 0.0,
+    "memory": 10
+  },
+  "thresholds": {
+    "mouth_open": {"enter": 0.22, "exit": 0.10, "hold": 2},
+    "mouth_wide": {"enter": 0.50, "exit": 0.35, "hold": 2},
+    "smile": {"enter": 0.40, "exit": 0.25, "hold": 3},
+    "blink": {"enter": 0.45, "exit": 0.22, "hold": 1},
+    "eyes_closed_hold": 12,
+    "look": {"enter": 18, "exit": 10, "hold": 3, "yaw_sign": 1},
+    "head": {"enter": 12, "exit": 6, "hold": 3, "pitch_sign": 1}
+  }
+}
