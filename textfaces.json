@@ -108,6 +108,16 @@
         "right": ""
       }
     },
+    "muted": {
+      "left": "(•x• )",
+      "center": "( •x•)",
+      "right": "( •x•)",
+      "image": {
+        "left": "",
+        "center": "",
+        "right": ""
+      }
+    },
     "cover_l": {
       "left": "(/_• )",
       "center": "( /_•)",

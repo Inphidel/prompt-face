@@ -5,6 +5,7 @@
   Saving writes textfaces.json and rules.json in the project directory.
   The Mouth button switches the mouth between camera jaw and microphone loudness.
   A custom emote replaces the whole centered line until it is cleared.
+  Face mute is a report. The muted face is edited like the other slots.
 -->
 <html lang="en">
 <head>
@@ -50,6 +51,9 @@
   label { color: var(--dim); }
   #status { color: var(--dim); }
   #status.live { color: var(--on); }
+  #mute-state { color: var(--dim); margin-top: 4px; }
+  #mute-state.on { color: #e06a6a; }
+  #mute-state.off { color: var(--on); }
   .hint { color: var(--dim); margin: 0 0 8px; }
   #face-now {
     font-family: var(--face-font);
@@ -108,6 +112,7 @@
   <div>
     <button type="button" id="mouth-toggle">Mouth: jaw</button>
     <div id="status">waiting for the tracker</div>
+    <div id="mute-state">Face mute: waiting</div>
   </div>
 </header>
 <main>
@@ -115,7 +120,7 @@
     <h2>On screen</h2>
     <div id="face-now"></div>
     <p id="face-caption" class="hint">The line updates when the tracker is connected.</p>
-    <p class="hint">The outlined face is the one on screen. Edit on screen opens it. The outlined field is the side in use while that face is selected. Click a character below to drop it into the field you are editing.</p>
+    <p class="hint">The outlined face is the one on screen. Edit on screen opens it. The outlined field is the side in use while that face is selected. Click a character below to drop it into the field you are editing. Muted has the same left, center, and right fields. Face mute above only reports that state.</p>
     <div id="face-slots"></div>
     <div class="face-fields">
       <label><span id="name-left">Left</span> <input id="face-left" autocomplete="off" spellcheck="false"></label>
@@ -179,6 +184,7 @@ const FACE_SLOTS = [
   ["smile", "Smile"],
   ["blink", "Blink"],
   ["closed", "Closed"],
+  ["muted", "Muted"],
   ["cover_l", "Cover left"],
   ["cover_r", "Cover right"],
   ["cover_both", "Cover both"],
@@ -374,8 +380,24 @@ function paintFaceLive() {
   markFaceChips();
 }
 
+function paintMute() {
+  const report = document.getElementById("mute-state");
+  const value = latest && latest.muted;
+  if (value === "on") {
+    report.textContent = "Face mute: on";
+    report.className = "on";
+  } else if (value === "off") {
+    report.textContent = "Face mute: off";
+    report.className = "off";
+  } else {
+    report.textContent = "Face mute: waiting";
+    report.className = "";
+  }
+}
+
 function paint() {
   paintFaceLive();
+  paintMute();
 }
 
 function editOnScreen() {
@@ -577,6 +599,8 @@ function connect() {
   socket.addEventListener("close", () => {
     statusEl.textContent = "tracker disconnected";
     statusEl.className = "";
+    latest = null;
+    paintMute();
     setTimeout(connect, 1000);
   });
 }

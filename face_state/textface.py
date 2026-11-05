@@ -2,8 +2,9 @@
 
 Slots in textfaces.json are the character. Closed eyes, a blink, a smile,
 a wide mouth, and an open mouth each have a slot, and the rest use neutral.
-Looking left or right uses that side of the slot. An empty side falls back
-to the center.
+A mute flag uses the muted slot instead, with a lowercase x for the mouth
+unless that slot was edited. Looking left or right uses that side of the
+slot. An empty side falls back to the center.
 
 Arms always have a mark unless a hand is on the face. A hand on one side
 clears that side only. Thumbs-up, peace, point, and open replace the arm
@@ -27,7 +28,19 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 CATALOG_PATH = Path(__file__).resolve().parent / "text_faces.json"
-SLOTS = ("absent", "neutral", "talk", "shout", "smile", "blink", "closed", "cover_l", "cover_r", "cover_both")
+SLOTS = (
+    "absent",
+    "neutral",
+    "talk",
+    "shout",
+    "smile",
+    "blink",
+    "closed",
+    "muted",
+    "cover_l",
+    "cover_r",
+    "cover_both",
+)
 COVER_SLOTS = ("cover_l", "cover_r", "cover_both")
 ARM_MARKS = {"l_up": "\\", "l_down": "_", "r_up": "/", "r_down": "_"}
 GESTURE_ORDER = ("thumbsup", "peace", "point", "open")
@@ -52,6 +65,7 @@ DEFAULT_TEXT = {
     "smile": "｡◕‿◕｡",
     "blink": "◕‿↼",
     "closed": "(︶︹︺)",
+    "muted": "( •x•)",
 }
 RULE_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 MAX_TEXT = 240
@@ -278,6 +292,9 @@ def validate_textfaces(payload: dict) -> dict:
         if name not in slots:
             if name in COVER_SLOTS:
                 cleaned_slots[name] = _clean_entry({}, name)
+                continue
+            if name == "muted":
+                cleaned_slots[name] = _clean_entry(variants(DEFAULT_TEXT["muted"]), name)
                 continue
             raise ValueError(f"missing the {name} face")
         cleaned = _clean_entry(slots[name], name)
@@ -550,6 +567,10 @@ def choose(state: dict, bindings: dict) -> tuple[str, str, str, str]:
     """Return the face text, slot, image path, and side."""
     slots = bindings.get("slots") or {}
     library = bindings.get("library") or ""
+    if state.get("muted") == "on":
+        direction = "center" if state.get("face") == "absent" else direction_of(state)
+        text, image, side = _pick(slots.get("muted"), direction, library)
+        return text, "muted", resolve_image(image, library), side
     cover = cover_name(state)
     if cover and _has_face(slots.get(cover), library):
         direction = "center" if state.get("face") == "absent" else direction_of(state)

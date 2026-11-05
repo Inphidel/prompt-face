@@ -10,8 +10,8 @@ OBS does not reload an image when the path stays the same, so the bridge
 alternates panel/prompt-a.png and panel/prompt-b.png.
 
 Each changed state is also sent to Advanced Scene Switcher as a message
-such as "mouth=open", which a macro can match. The websocket password stays
-in ~/.config/face-state/obs.json, outside this project.
+such as "mouth=open" or "muted=on", which a macro can match. The websocket
+password stays in ~/.config/face-state/obs.json, outside this project.
 """
 
 from __future__ import annotations
@@ -478,7 +478,9 @@ async def run() -> None:
                     state = json.loads(raw)
                     names = [name for name in (*FIELDS, *DETAIL) if name in state]
                     if first:
-                        changed = names
+                        changed = list(names)
+                        if isinstance(state.get("muted"), str) and "muted" not in changed:
+                            changed.append("muted")
                     else:
                         changed = [
                             name for name in (state.get("changed") or [])

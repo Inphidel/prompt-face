@@ -8,6 +8,10 @@ Jaw mode does not start a capture. ``mouth sound`` is what opens the
 microphone, and ``mouth jaw`` closes it again. PipeWire shares that
 capture, so OBS can keep the same source.
 
+``mute`` does not silence that microphone. It sets a flag. The face
+switches to the muted slot, and Advanced Scene Switcher hears
+``muted=on`` or ``muted=off`` so a macro there can mute the OBS source.
+
     mouth
     mouth jaw
     mouth sound
@@ -58,7 +62,7 @@ def token_of(config: dict | None) -> str:
 
 def _mouth_reply(status: dict) -> str:
     hearing = "yes" if status.get("hearing") else "no"
-    muted = "yes" if status.get("muted") else "no"
+    muted = "on" if status.get("muted") else "off"
     return f"ok mouth={status.get('source')} hearing={hearing} muted={muted}"
 
 
@@ -97,17 +101,14 @@ def handle_line(line: str, board, mouth, token: str = "") -> str | None:
         return status_line(mouth, board)
     if command == "mute":
         word = argument.strip().lower()
-        try:
-            if word in ("", "toggle"):
-                status = mouth.set_mute(toggle=True)
-            elif word in ("on", "mute", "yes"):
-                status = mouth.set_mute(True)
-            elif word in ("off", "unmute", "no"):
-                status = mouth.set_mute(False)
-            else:
-                return "err mute needs on, off, or toggle"
-        except (OSError, RuntimeError) as error:
-            return f"err {error}"
+        if word in ("", "toggle"):
+            status = mouth.set_mute(toggle=True)
+        elif word in ("on", "mute", "yes"):
+            status = mouth.set_mute(True)
+        elif word in ("off", "unmute", "no"):
+            status = mouth.set_mute(False)
+        else:
+            return "err mute needs on, off, or toggle"
         return _mouth_reply(status)
     if command == "mouth":
         word = argument.strip().lower()

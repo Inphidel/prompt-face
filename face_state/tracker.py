@@ -201,6 +201,7 @@ def loop(config: dict, hub: Hub, loop: asyncio.AbstractEventLoop, stop: threadin
         config.get("mouth"),
     )
     mouth_was = mouth.source()
+    muted_was = None
     deadline = time.monotonic() + seconds if seconds else None
     last_print = 0.0
     last_stamp = 0
@@ -262,6 +263,12 @@ def loop(config: dict, hub: Hub, loop: asyncio.AbstractEventLoop, stop: threadin
                 mouth_was = source
             state["mouth_source"] = source
             composer.apply(state)
+            # Mute is a flag for the face and for OBS. It does not touch the mic.
+            muted = "on" if mouth.muted() else "off"
+            if muted != muted_was:
+                state["changed"] = [*(state.get("changed") or []), "muted"]
+                muted_was = muted
+            state["muted"] = muted
             board.apply(state)
             state["t"] = round(time.time(), 3)
             loop.call_soon_threadsafe(hub.publish, state)

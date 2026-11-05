@@ -2,7 +2,7 @@
 
 Prompt is a text face driven by a webcam. A local program reads your face, hands, and pose, paints one line of text into a fixed panel, and OBS shows that panel. The letters stay one size. Stretch, rotate, or move the panel in OBS when you want the face larger, smaller, or tilted. The origin of the panel is its middle.
 
-The microphone can blink the mouth while you talk. It stays closed until a command turns sound on. OBS can use that same microphone the whole time. A button, on this computer or on another one, switches the mouth between the microphone and the jaw, and another command replaces the whole line with a custom emote.
+The microphone can blink the mouth while you talk. It stays closed until a command turns sound on. OBS can use that same microphone the whole time. A button, on this computer or on another one, switches the mouth between the microphone and the jaw, and another command replaces the whole line with a custom emote. A mute command changes the face and tells OBS. It does not silence the microphone.
 
 Everything runs on your machine. The webcam picture is not uploaded.
 
@@ -17,7 +17,7 @@ Everything runs on your machine. The webcam picture is not uploaded.
 
 Optional:
 
-- Advanced Scene Switcher in OBS, if you want messages such as `mouth=open` to drive macros.
+- Advanced Scene Switcher in OBS, if you want messages such as `mouth=open` or `muted=on` to drive macros.
 - A Stream Deck, or any button that can open a TCP connection. The tracker listens on port 8772. A deck attached to another computer sends one line to that port. The firewall on the face computer has to allow it.
 - Ghostty, or another terminal that accepts `-e`, if you want the desktop launchers to open a window.
 
@@ -134,17 +134,19 @@ ping
 
 `mouth` alone toggles. `mouth on` and `mouth sound` open the capture. `mouth off` and `mouth jaw` close the capture and return the mouth to the camera. That does not mute the stream. OBS keeps hearing the microphone.
 
-`mute`, `mute on`, and `mute off` mute that same PipeWire source. OBS hears silence, and the face capture closes. `mute off` clears the mute. The reply includes `muted=yes` or `muted=no`. Leaving the tracker clears a mute that Prompt Face itself turned on. A mute you set in a volume control stays as it was.
+`mute`, `mute on`, and `mute off` set a face mute. They do not silence the microphone, and they do not close the capture. While the mute is on, the painted face uses the Muted slot. That slot has a left, center, and right, like the other faces, and the expression page is where you edit it. The shipped mouth is a lowercase `x`. The page shows `Face mute: on` or `Face mute: off`. It does not switch the mute.
+
+The same change goes to Advanced Scene Switcher as the message `muted=on` or `muted=off`. A macro there can mute the OBS audio source. Match those words exactly. Prompt Face leaves the microphone alone so OBS can keep hearing it. The reply includes `muted=on` or `muted=off`. A custom emote still replaces the whole line until it is cleared. The mute flag, the page report, and the OBS message stay on either way.
 
 `status` answers with the mouth, the mute, and the face that is on screen. The face text is everything after `line=`:
 
 ```text
-ok mouth=jaw hearing=no muted=no mode=live expression=closed line=( •_•)
+ok mouth=jaw hearing=no muted=off mode=live expression=closed line=( •_•)
 ```
 
 `mode=emote` means a custom face is holding. `mode=live` means the camera face is showing. `expression` is `closed`, `open`, or `wide`.
 
-`hearing=yes` means the capture is running. `hearing=no` means the capture is closed. A mute also reports `hearing=no`.
+`hearing=yes` means the capture is running. `hearing=no` means the capture is closed. Mute does not change that.
 
 The Companion module for these buttons is https://github.com/Inphidel/companion-module-prompt-face . Its presets replace a raw TCP button: mute, a key that shows the live face, and a hold-to-show emote with a text field.
 
@@ -200,11 +202,11 @@ The package is `face_state`. Comments at the top of each module describe that st
 2. `tracker.py` runs the MediaPipe face, hand, and pose landmarkers on each frame.
 3. `pose.py` and `hand.py` measure arms, where a hand sits on the face, which way the palm points, and what the fingers are doing.
 4. `reduce.py` turns scores into stable names. Each label has an enter line, a lower exit line, and a short hold so a value on the boundary does not flicker.
-5. `textface.py` picks the face string, the arm marks, or a whole-line emote.
+5. `textface.py` picks the face string, the arm marks, or a whole-line emote. A mute flag picks the muted slot before the camera expression.
 6. `paint.py` draws that line in the middle of a 1400 by 180 panel. The font size stays put. Arms grow outward and clip at the edge.
 7. `obs_bridge.py` writes the panel into the OBS image source and can message Advanced Scene Switcher.
-8. `voice.py` reads the microphone with `pw-record` only while the mouth source is sound. Closing sound mode stops that process.
-9. `command_server.py` listens on TCP port 8772 for mouth and emote lines from another computer.
+8. `voice.py` reads the microphone with `pw-record` only while the mouth source is sound. Closing sound mode stops that process. Its mute flag does not call a volume control.
+9. `command_server.py` listens on TCP port 8772 for mouth, mute, and emote lines from another computer.
 10. `author.py` serves the expression page on localhost.
 11. `server.py` publishes the state JSON on the localhost WebSocket.
 
@@ -216,6 +218,7 @@ The package is `face_state`. Comments at the top of each module describe that st
 | --- | --- |
 | face | present, absent |
 | mouth | closed, open, wide |
+| muted | off, on |
 | smile | off, on |
 | eyes | open, blink, closed |
 | look | left, center, right |
