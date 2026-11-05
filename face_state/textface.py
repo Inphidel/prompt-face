@@ -77,6 +77,7 @@ MAX_HOLD_MS = 10_000
 MAX_VARY_MS = 5_000
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 SIDES = ("left", "center", "right")
+HAT_NAMES = ("a", "b", "c", "d")
 
 # Each pair is swapped. The map has to be its own inverse so flipping twice
 # lands back on the original face.
@@ -165,6 +166,7 @@ def default_bindings() -> dict:
         "slots": {name: variants(DEFAULT_TEXT.get(name, "")) for name in SLOTS},
         "arms": dict(ARM_MARKS),
         "gestures": default_gestures(),
+        "hats": {name: "" for name in HAT_NAMES},
         "rules": {},
     }
 
@@ -274,6 +276,21 @@ def _clean_arms(raw) -> dict:
     return {key: _clean_mark(raw.get(key), f"arm {key}", default) for key, default in ARM_MARKS.items()}
 
 
+def _clean_hats(raw) -> dict:
+    """One picture for each hat slot. Empty means that slot has no picture."""
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict):
+        raise ValueError("hats need to be an object")
+    cleaned = {}
+    for name in HAT_NAMES:
+        value = raw.get(name, "")
+        if not isinstance(value, str):
+            raise ValueError(f"hat {name} needs to be a file path")
+        cleaned[name] = _clean_path(value, f"hat {name}")
+    return cleaned
+
+
 def _clean_library(value) -> str:
     if value is None:
         return ""
@@ -319,6 +336,7 @@ def validate_textfaces(payload: dict) -> dict:
         "library": _clean_library(library),
         "arms": _clean_arms(payload.get("arms")),
         "gestures": _clean_gestures(payload.get("gestures")),
+        "hats": _clean_hats(payload.get("hats")),
         "slots": cleaned_slots,
         "rules": cleaned_rules,
     }
@@ -608,6 +626,7 @@ class TextBoard:
         self._emote = None
         self._shown = ""
         self._expression = "closed"
+        self._hat = "none"
         self.reload()
 
     def set_line(self, text: str | None) -> dict:
@@ -620,6 +639,28 @@ class TextBoard:
             if cleaned is not None:
                 self._shown = cleaned
             return {"text": self._emote}
+
+    def set_hat(self, slot: str) -> str:
+        """Choose hat a, b, c, d, or none. The text face is left alone."""
+        word = (slot or "").strip().lower()
+        if word in ("", "none", "off", "clear"):
+            word = "none"
+        elif word not in HAT_NAMES:
+            raise ValueError("hat needs a, b, c, d, or none")
+        with self._lock:
+            self._hat = word
+            return word
+
+    def hat_view(self) -> dict:
+        """The selected slot and the picture file, when that file exists."""
+        with self._lock:
+            slot = self._hat
+            library = self._bindings.get("library") or ""
+            stored = ""
+            if slot in HAT_NAMES:
+                stored = str((self._bindings.get("hats") or {}).get(slot) or "")
+        picture = resolve_image(stored, library) if slot in HAT_NAMES else ""
+        return {"slot": slot, "file": picture}
 
     def line_status(self) -> dict:
         """The custom emote, the line last drawn, and the camera mouth."""

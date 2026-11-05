@@ -24,13 +24,20 @@ switches to the muted slot, and Advanced Scene Switcher hears
     emote toggle TEXT
     emote --clear
     clear
+    hat a
+    hat b
+    hat c
+    hat d
+    hat none
     status
     ping
 
 ``mouth`` with no word toggles. ``mouth on`` is sound and ``mouth off`` is
 jaw. ``emote TEXT`` stays on the face until ``clear``. ``emote toggle TEXT``
-shows that face, and the same line again clears it. When
-``command.token`` is set, the line starts with that word:
+shows that face, and the same line again clears it. ``hat a`` through
+``hat d`` choose a picture for the separate hat image. ``hat none``
+hides it. The text face is unchanged. When ``command.token`` is set,
+the line starts with that word:
 
     secret mouth sound
 """
@@ -76,7 +83,8 @@ def status_line(mouth, board) -> str:
     mode = "emote" if face.get("text") is not None else "live"
     expression = face.get("expression") if face.get("expression") in ("closed", "open", "wide") else "closed"
     line = str(face.get("line") or "").replace("\n", " ").replace("\r", " ")
-    return f"{_mouth_reply(mouth_status)} mode={mode} expression={expression} line={line}"
+    hat = board.hat_view().get("slot") or "none"
+    return f"{_mouth_reply(mouth_status)} mode={mode} expression={expression} hat={hat} line={line}"
 
 
 def _set_emote(board, mouth, text: str | None) -> str:
@@ -125,6 +133,15 @@ def handle_line(line: str, board, mouth, token: str = "") -> str | None:
         else:
             return "err mouth needs jaw, sound, on, off, or toggle"
         return _mouth_reply(status)
+    if command == "hat":
+        word = argument.strip().lower()
+        if word in ("", "status"):
+            return status_line(mouth, board)
+        try:
+            board.set_hat(word)
+        except ValueError as error:
+            return f"err {error}"
+        return status_line(mouth, board)
     if command == "clear":
         return _set_emote(board, mouth, None)
     if command == "emote":

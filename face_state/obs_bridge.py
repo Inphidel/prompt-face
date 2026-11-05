@@ -6,6 +6,10 @@ at a fixed font size. Once the source is centered and has no fit-to-box
 bounds, later connections leave its position, scale, and rotation alone.
 Stretch or rotate it in OBS. That is the only size change.
 
+A second image, Hat, lives in its own scene, Prompt Hat. Center and right
+show that picture as drawn. A look to the left flips only its horizontal
+scale. Prompt's placement is left alone.
+
 OBS does not reload an image when the path stays the same, so the bridge
 alternates panel/prompt-a.png and panel/prompt-b.png.
 
@@ -32,7 +36,14 @@ from face_state.reduce import DETAIL, FIELDS
 SCENE = "Avatar"
 FACE_TEXT = "Face text"
 PANEL = "Prompt"
+HAT_SCENE = "Prompt Hat"
+HAT = "Hat"
 FACE_FONT = "Face Text"
+# A 1 pixel clear PNG, so a new hat source has a file before a picture is chosen.
+BLANK_PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+    "0000000a49444154789c63000100000500010d0a2db40000000049454e44ae426082"
+)
 ROOT = Path(__file__).resolve().parent.parent
 PANEL_DIR = ROOT / "panel"
 OBS_CONFIG = Path.home() / ".config" / "face-state" / "obs.json"
@@ -102,6 +113,16 @@ def visual_center(transform: dict) -> tuple[float, float]:
     return cx, cy
 
 
+def hat_scale(scale_x: float, look: str) -> float:
+    """Keep the size. Left looks use a negative horizontal scale, which mirrors."""
+    magnitude = abs(float(scale_x))
+    if magnitude < 0.01:
+        magnitude = 1.0
+    if look == "left":
+        return -magnitude
+    return magnitude
+
+
 def content_scale(transform: dict) -> tuple[float, float]:
     """How big the glyphs are, after a fit-to-box scale."""
     sx = float(transform.get("scaleX") or 1)
@@ -147,6 +168,8 @@ class Obs:
         self.stroke = (0, 0, 0, 255)
         self._flip = False
         self._paint_key = None
+        self._hat_ready = False
+        self._hat_note = None
 
     async def connect(self) -> None:
         self.ws = await websockets.connect(self.url)
@@ -444,8 +467,158 @@ class Obs:
             if message.get("op") == 7 and message["d"].get("requestId") == request_id:
                 return message["d"]
 
+    def _blank_hat(self) -> Path:
+        PANEL_DIR.mkdir(parents=True, exist_ok=True)
+        path = PANEL_DIR / "hat-blank.png"
+        if not path.exists():
+            path.write_bytes(BLANK_PNG)
+        return path
+
+    async def _scene_names(self) -> list[str]:
+        listed = await self.request("GetSceneList", {})
+        if not listed["requestStatus"]["result"]:
+            return []
+        return [
+            item.get("sceneName")
+            for item in (listed.get("responseData") or {}).get("scenes") or []
+            if item.get("sceneName")
+        ]
+
+    async def _children(self, scene: str, grouped: bool) -> list[dict]:
+        request = "GetGroupSceneItemList" if grouped else "GetSceneItemList"
+        listed = await self.request(request, {"sceneName": scene})
+        if not listed["requestStatus"]["result"]:
+            return []
+        return (listed.get("responseData") or {}).get("sceneItems") or []
+
+    async def hat_items(self) -> list[tuple[str, int]]:
+        """Every copy of the hat image, including one nested in a group."""
+        found = []
+        pending = [(name, False) for name in await self._scene_names()]
+        seen = set()
+        while pending:
+            scene, grouped = pending.pop()
+            if scene in seen:
+                continue
+            seen.add(scene)
+            for item in await self._children(scene, grouped):
+                if item.get("sourceName") == HAT and item.get("sceneItemId") is not None:
+                    found.append((scene, int(item["sceneItemId"])))
+                if item.get("isGroup") and item.get("sourceName"):
+                    pending.append((item["sourceName"], True))
+        return found
+
+    async def ensure_hat(self) -> None:
+        """Create the hat scene and image once. Later runs leave the placement alone."""
+        scenes = await self._scene_names()
+        if HAT_SCENE not in scenes:
+            created = await self.request("CreateScene", {"sceneName": HAT_SCENE})
+            if not created["requestStatus"]["result"]:
+                print(f"hat scene was not created: {created['requestStatus']}", flush=True)
+                return
+        listed = await self.request("GetInputList", {})
+        if not listed["requestStatus"]["result"]:
+            print(f"could not list inputs: {listed['requestStatus']}", flush=True)
+            return
+        names = {item.get("inputName") for item in listed["responseData"].get("inputs", [])}
+        if HAT in names:
+            self._hat_ready = True
+            return
+        created = await self.request("CreateInput", {
+            "sceneName": HAT_SCENE,
+            "inputName": HAT,
+            "inputKind": "image_source",
+            "inputSettings": {"file": str(self._blank_hat()), "unload": False},
+            "sceneItemEnabled": False,
+        })
+        if not created["requestStatus"]["result"]:
+            print(f"hat image was not created: {created['requestStatus']}", flush=True)
+            return
+        found = await self.request("GetSceneItemId", {"sceneName": HAT_SCENE, "sourceName": HAT})
+        if not found["requestStatus"]["result"]:
+            print(f"hat image has no scene item: {found['requestStatus']}", flush=True)
+            return
+        item_id = found["responseData"]["sceneItemId"]
+        current = await self.request("GetSceneItemTransform", {
+            "sceneName": HAT_SCENE,
+            "sceneItemId": item_id,
+        })
+        if current["requestStatus"]["result"]:
+            transform = current["responseData"]["sceneItemTransform"]
+            # Center alignment keeps a later horizontal flip in place.
+            transform["alignment"] = 0
+            transform["boundsType"] = "OBS_BOUNDS_NONE"
+            transform["boundsAlignment"] = 0
+            transform["scaleX"] = 1.0
+            transform["scaleY"] = 1.0
+            if float(transform.get("boundsWidth") or 0) < 1:
+                transform["boundsWidth"] = 1.0
+            if float(transform.get("boundsHeight") or 0) < 1:
+                transform["boundsHeight"] = 1.0
+            await self.request("SetSceneItemTransform", {
+                "sceneName": HAT_SCENE,
+                "sceneItemId": item_id,
+                "sceneItemTransform": transform,
+            })
+        self._hat_ready = True
+        print(f"hat image created in scene {HAT_SCENE}", flush=True)
+
+    async def show_hat(self, state: dict) -> None:
+        """Point the hat image at the chosen file and mirror it when looking left."""
+        await self.ensure_hat()
+        if not self._hat_ready:
+            return
+        slot = state.get("hat") if state.get("hat") in ("a", "b", "c", "d", "none") else "none"
+        picture = state.get("hat_file") if isinstance(state.get("hat_file"), str) else ""
+        visible = slot in ("a", "b", "c", "d") and bool(picture)
+        note = (slot, Path(picture).name if picture else "", visible)
+        if note != self._hat_note:
+            if slot in ("a", "b", "c", "d") and not picture:
+                print(f"hat {slot} has no picture", flush=True)
+            else:
+                print(f"hat {slot}", flush=True)
+            self._hat_note = note
+        if visible:
+            updated = await self.request("SetInputSettings", {
+                "inputName": HAT,
+                "inputSettings": {"file": picture},
+                "overlay": True,
+            })
+            if not updated["requestStatus"]["result"]:
+                print(f"hat picture was not updated: {updated['requestStatus']}", flush=True)
+        look = state.get("look") if state.get("look") in ("left", "center", "right") else "center"
+        for scene, item_id in await self.hat_items():
+            current = await self.request("GetSceneItemTransform", {
+                "sceneName": scene,
+                "sceneItemId": item_id,
+            })
+            if current["requestStatus"]["result"]:
+                transform = current["responseData"]["sceneItemTransform"]
+                scale_x = hat_scale(float(transform.get("scaleX") or 1), look)
+                # Send only the horizontal scale. Writing the whole transform
+                # back fails when OBS reports a bounds size of zero, and it
+                # would also move a hat the user had placed.
+                if abs(scale_x - float(transform.get("scaleX") or 0)) > 0.0001:
+                    moved = await self.request("SetSceneItemTransform", {
+                        "sceneName": scene,
+                        "sceneItemId": item_id,
+                        "sceneItemTransform": {"scaleX": scale_x},
+                    })
+                    if not moved["requestStatus"]["result"]:
+                        print(f"hat was not flipped: {moved['requestStatus']}", flush=True)
+            await self.request("SetSceneItemEnabled", {
+                "sceneName": scene,
+                "sceneItemId": item_id,
+                "sceneItemEnabled": visible,
+            })
+
     async def apply(self, state: dict, fields: list[str]) -> None:
         await self.show_line(state)
+        if "hat" in fields or "look" in fields or not self._hat_ready:
+            try:
+                await self.show_hat(state)
+            except (OSError, RuntimeError, KeyError, TypeError) as error:
+                print(f"hat was not updated: {error}", flush=True)
         for name in fields:
             sent = await self.request("CallVendorRequest", {
                 "vendorName": "AdvancedSceneSwitcher",
@@ -481,6 +654,8 @@ async def run() -> None:
                         changed = list(names)
                         if isinstance(state.get("muted"), str) and "muted" not in changed:
                             changed.append("muted")
+                        if isinstance(state.get("hat"), str) and "hat" not in changed:
+                            changed.append("hat")
                     else:
                         changed = [
                             name for name in (state.get("changed") or [])
