@@ -13,6 +13,9 @@ capture, so OBS can keep the same source.
     mouth sound
     mouth on
     mouth off
+    mute
+    mute on
+    mute off
     emote TEXT
     emote --clear
     clear
@@ -55,7 +58,18 @@ def token_of(config: dict | None) -> str:
 
 def _mouth_reply(status: dict) -> str:
     hearing = "yes" if status.get("hearing") else "no"
-    return f"ok mouth={status.get('source')} hearing={hearing}"
+    muted = "yes" if status.get("muted") else "no"
+    return f"ok mouth={status.get('source')} hearing={hearing} muted={muted}"
+
+
+def status_line(mouth, board) -> str:
+    """One status line. Everything after ``line=`` is the face text."""
+    mouth_status = mouth.status()
+    face = board.line_status()
+    mode = "emote" if face.get("text") is not None else "live"
+    expression = face.get("expression") if face.get("expression") in ("closed", "open", "wide") else "closed"
+    line = str(face.get("line") or "").replace("\n", " ").replace("\r", " ")
+    return f"{_mouth_reply(mouth_status)} mode={mode} expression={expression} line={line}"
 
 
 def _emote_reply(status: dict) -> str:
@@ -80,9 +94,21 @@ def handle_line(line: str, board, mouth, token: str = "") -> str | None:
     if command == "ping":
         return "ok pong"
     if command == "status":
-        mouth_status = mouth.status()
-        emote = _emote_reply(board.line_status()).removeprefix("ok ")
-        return f"{_mouth_reply(mouth_status)} {emote}"
+        return status_line(mouth, board)
+    if command == "mute":
+        word = argument.strip().lower()
+        try:
+            if word in ("", "toggle"):
+                status = mouth.set_mute(toggle=True)
+            elif word in ("on", "mute", "yes"):
+                status = mouth.set_mute(True)
+            elif word in ("off", "unmute", "no"):
+                status = mouth.set_mute(False)
+            else:
+                return "err mute needs on, off, or toggle"
+        except (OSError, RuntimeError) as error:
+            return f"err {error}"
+        return _mouth_reply(status)
     if command == "mouth":
         word = argument.strip().lower()
         if word in ("", "toggle"):

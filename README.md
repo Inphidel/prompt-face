@@ -122,6 +122,9 @@ mouth jaw
 mouth sound
 mouth on
 mouth off
+mute
+mute on
+mute off
 emote ¯\_(ツ)_/¯
 emote --clear
 clear
@@ -129,7 +132,21 @@ status
 ping
 ```
 
-`mouth` alone toggles. `mouth on` and `mouth sound` open the microphone. `mouth off` and `mouth jaw` close it and return the mouth to the camera. The reply is one line, such as `ok mouth=jaw hearing=no` or `ok emote=live`. `hearing=yes` means the capture is running. `hearing=no` means the microphone is not open.
+`mouth` alone toggles. `mouth on` and `mouth sound` open the capture. `mouth off` and `mouth jaw` close the capture and return the mouth to the camera. That does not mute the stream. OBS keeps hearing the microphone.
+
+`mute`, `mute on`, and `mute off` mute that same PipeWire source. OBS hears silence, and the face capture closes. `mute off` clears the mute. The reply includes `muted=yes` or `muted=no`. Leaving the tracker clears a mute that Prompt Face itself turned on. A mute you set in a volume control stays as it was.
+
+`status` answers with the mouth, the mute, and the face that is on screen. The face text is everything after `line=`:
+
+```text
+ok mouth=jaw hearing=no muted=no mode=live expression=closed line=( •_•)
+```
+
+`mode=emote` means a custom face is holding. `mode=live` means the camera face is showing. `expression` is `closed`, `open`, or `wide`.
+
+`hearing=yes` means the capture is running. `hearing=no` means the capture is closed. A mute also reports `hearing=no`.
+
+The Companion module for these buttons is https://github.com/Inphidel/companion-module-prompt-face . Its presets replace a raw TCP button: mute, a key that shows the live face, and a hold-to-show emote with a text field.
 
 ```bash
 printf 'mouth toggle\n' | nc 192.168.1.20 8772

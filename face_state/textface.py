@@ -585,6 +585,8 @@ class TextBoard:
         self._absent_index = 0
         self._absent_until = 0.0
         self._emote = None
+        self._shown = ""
+        self._expression = "closed"
         self.reload()
 
     def set_line(self, text: str | None) -> dict:
@@ -592,11 +594,15 @@ class TextBoard:
         cleaned = clean_line(text)
         with self._lock:
             self._emote = cleaned
+            if cleaned is not None:
+                self._shown = cleaned
             return {"text": self._emote}
 
     def line_status(self) -> dict:
+        """The custom emote, the line last drawn, and the camera mouth."""
         with self._lock:
-            return {"text": self._emote}
+            shown = self._shown if self._emote is None else self._emote
+            return {"text": self._emote, "line": shown, "expression": self._expression}
 
     def reload(self) -> None:
         with self._lock:
@@ -652,6 +658,7 @@ class TextBoard:
             state["text_slot"] = "emote"
             state["image"] = ""
             state["image_side"] = "center"
+            self._remember(state)
             return state
         text, slot, image, side = choose(state, bindings)
         if slot == "absent":
@@ -673,4 +680,12 @@ class TextBoard:
         state["text_slot"] = slot
         state["image"] = image
         state["image_side"] = side
+        self._remember(state)
         return state
+
+    def _remember(self, state: dict) -> None:
+        """Keep the latest painted line for the command port."""
+        expression = state.get("mouth") if state.get("mouth") in ("closed", "open", "wide") else "closed"
+        with self._lock:
+            self._shown = state.get("text") or ""
+            self._expression = expression
