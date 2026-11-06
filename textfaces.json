@@ -1,10 +1,10 @@
 {
   "library": "images",
   "arms": {
-    "l_up": "°\\",
-    "l_down": " .",
-    "r_up": "/°",
-    "r_down": ". "
+    "l_up": "\\",
+    "l_down": " ",
+    "r_up": "/",
+    "r_down": " "
   },
   "gestures": {
     "enabled": true,
@@ -12,20 +12,20 @@
       {
         "id": "thumbsup",
         "enabled": true,
-        "left": "d.",
-        "right": ".b"
+        "left": "d",
+        "right": "b"
       },
       {
         "id": "peace",
         "enabled": true,
-        "left": "¥.",
-        "right": ".¥"
+        "left": "¥",
+        "right": "¥"
       },
       {
         "id": "point",
         "enabled": true,
-        "left": "-─",
-        "right": "─-"
+        "left": "└",
+        "right": "┘"
       },
       {
         "id": "open",
@@ -35,11 +35,53 @@
       }
     ]
   },
+  "hats": {
+    "a": {
+      "left": "__[▒░]_",
+      "center": "_[▒░]__",
+      "right": "_[▒░]__"
+    },
+    "b": {
+      "left": "",
+      "center": "",
+      "right": ""
+    },
+    "c": {
+      "left": "",
+      "center": "",
+      "right": ""
+    },
+    "d": {
+      "left": "",
+      "center": "",
+      "right": ""
+    },
+    "e": {
+      "left": "",
+      "center": "",
+      "right": ""
+    },
+    "f": {
+      "left": "",
+      "center": "",
+      "right": ""
+    },
+    "g": {
+      "left": "",
+      "center": "",
+      "right": ""
+    },
+    "h": {
+      "left": "",
+      "center": "",
+      "right": ""
+    }
+  },
   "slots": {
     "absent": {
-      "left": "(• • )",
-      "center": "( • •)",
-      "right": "( • •)",
+      "left": "(░· ·)",
+      "center": "(░   )",
+      "right": "(░   )",
       "image": {
         "left": "",
         "center": "",
@@ -99,9 +141,9 @@
       }
     },
     "closed": {
-      "left": "(v_V )",
-      "center": "( V_v)",
-      "right": "( V_v)",
+      "left": "(u.U )",
+      "center": "( U.u)",
+      "right": "( U.u)",
       "image": {
         "left": "",
         "center": "",
