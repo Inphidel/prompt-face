@@ -167,13 +167,16 @@ class Obs:
         self.password = password
         self.ws = None
         self.item_ids: dict[str, int] = {}
+        self.item_scenes: dict[str, str] = {}
         self.face_text = False
         self.panel = False
         self.font_px = 80
         self.outline_px = 4
         self.fill = (255, 255, 255, 255)
         self.stroke = (0, 0, 0, 255)
-        self._flip = False
+        # Start on the other file. OBS keeps the old picture when the path
+        # does not change, and the live face is often still prompt-a.png.
+        self._flip = True
         self._paint_key = None
         self._hat_ready = False
         self._hat_note = None
@@ -196,6 +199,7 @@ class Obs:
         if identified.get("op") != 2:
             raise RuntimeError(f"OBS refused the connection: {identified}")
         self.item_ids = {}
+        self.item_scenes = {}
         try:
             await self.ensure_face_text()
             await self.ensure_panel()
@@ -218,7 +222,7 @@ class Obs:
             item_id = self.item_ids.get(FACE_TEXT)
             if item_id is not None:
                 await self.request("SetSceneItemEnabled", {
-                    "sceneName": SCENE,
+                    "sceneName": self.item_scenes.get(FACE_TEXT, SCENE),
                     "sceneItemId": item_id,
                     "sceneItemEnabled": True,
                 })
@@ -306,9 +310,11 @@ class Obs:
             print(f"could not list inputs: {listed['requestStatus']}", flush=True)
             return
         names = {item.get("inputName") for item in listed["responseData"].get("inputs", [])}
-        placeholder = PANEL_DIR / "prompt-a.png"
-        paint_panel("", "_", "_", placeholder, font_px=self.font_px, outline=self.outline_px, fill=self.fill, stroke=self.stroke)
         if PANEL not in names:
+            # Only a new source needs a starter file. Writing this over the
+            # live panel blanks the face until the next paint.
+            placeholder = PANEL_DIR / "prompt-a.png"
+            paint_panel("", "_", "_", placeholder, font_px=self.font_px, outline=self.outline_px, fill=self.fill, stroke=self.stroke)
             created = await self.request("CreateInput", {
                 "sceneName": SCENE,
                 "inputName": PANEL,
@@ -319,13 +325,15 @@ class Obs:
             if not created["requestStatus"]["result"]:
                 print(f"prompt panel was not created: {created['requestStatus']}", flush=True)
                 return
+        # The file update does not need the scene item. Prompt may live in
+        # a scene other than Avatar after it has been placed.
         self.panel = True
         item_id = await self.remember_item(PANEL)
         if item_id is None:
-            self.panel = False
+            print("prompt image is not in a scene yet; the file will still update", flush=True)
             return
         current = await self.request("GetSceneItemTransform", {
-            "sceneName": SCENE,
+            "sceneName": self.item_scenes.get(PANEL, SCENE),
             "sceneItemId": item_id,
         })
         if not current["requestStatus"]["result"]:
@@ -354,7 +362,7 @@ class Obs:
             if float(transform.get("boundsHeight") or 0) < 1:
                 transform["boundsHeight"] = 1.0
             moved = await self.request("SetSceneItemTransform", {
-                "sceneName": SCENE,
+                "sceneName": self.item_scenes.get(PANEL, SCENE),
                 "sceneItemId": item_id,
                 "sceneItemTransform": transform,
             })
@@ -372,7 +380,7 @@ class Obs:
             text_id = await self.remember_item(FACE_TEXT)
         if text_id is not None:
             await self.request("SetSceneItemEnabled", {
-                "sceneName": SCENE,
+                "sceneName": self.item_scenes.get(FACE_TEXT, SCENE),
                 "sceneItemId": text_id,
                 "sceneItemEnabled": False,
             })
@@ -382,7 +390,7 @@ class Obs:
         if text_id is None:
             return (960.0, 540.0), (1.0, 1.0)
         current = await self.request("GetSceneItemTransform", {
-            "sceneName": SCENE,
+            "sceneName": self.item_scenes.get(FACE_TEXT, SCENE),
             "sceneItemId": text_id,
         })
         if not current["requestStatus"]["result"]:
@@ -453,12 +461,13 @@ class Obs:
             print(f"face text font set to {FACE_FONT}", flush=True)
 
     async def remember_item(self, name: str) -> int | None:
-        found = await self.request("GetSceneItemId", {"sceneName": SCENE, "sourceName": name})
-        if not found["requestStatus"]["result"]:
-            print(f"{name} has no scene item: {found['requestStatus']}", flush=True)
+        """Find a source in any scene. A placed face is not required to stay in Avatar."""
+        found = await self.source_items(name)
+        if not found:
             return None
-        item_id = found["responseData"]["sceneItemId"]
+        scene, item_id = found[0]
         self.item_ids[name] = item_id
+        self.item_scenes[name] = scene
         return item_id
 
     async def request(self, request_type: str, data: dict) -> dict:
@@ -500,8 +509,8 @@ class Obs:
             return []
         return (listed.get("responseData") or {}).get("sceneItems") or []
 
-    async def hat_items(self) -> list[tuple[str, int]]:
-        """Every copy of the hat image, including one nested in a group."""
+    async def source_items(self, source_name: str) -> list[tuple[str, int]]:
+        """Every copy of a source, including one nested in a group."""
         found = []
         pending = [(name, False) for name in await self._scene_names()]
         seen = set()
@@ -511,11 +520,15 @@ class Obs:
                 continue
             seen.add(scene)
             for item in await self._children(scene, grouped):
-                if item.get("sourceName") == HAT and item.get("sceneItemId") is not None:
+                if item.get("sourceName") == source_name and item.get("sceneItemId") is not None:
                     found.append((scene, int(item["sceneItemId"])))
                 if item.get("isGroup") and item.get("sourceName"):
                     pending.append((item["sourceName"], True))
         return found
+
+    async def hat_items(self) -> list[tuple[str, int]]:
+        """Every copy of the hat image, including one nested in a group."""
+        return await self.source_items(HAT)
 
     async def ensure_hat(self) -> None:
         """Create the hat scene and image once. Later runs leave the placement alone."""
