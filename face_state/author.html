@@ -6,6 +6,7 @@
   The Mouth button switches the mouth between camera jaw and microphone loudness.
   A custom emote replaces the whole centered line until it is cleared.
   Face mute is a report. The muted face is edited like the other slots.
+  Hats are a second text layer. Each slot has left, center, and right.
 -->
 <html lang="en">
 <head>
@@ -55,7 +56,6 @@
   #mute-state.on { color: #e06a6a; }
   #mute-state.off, #hat-state.on { color: var(--on); }
   select { font: inherit; color: var(--text); background: var(--chip); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
-  .hat-row img { width: 72px; height: 48px; object-fit: contain; background: #0c0d0a; border-radius: 4px; }
   .hint { color: var(--dim); margin: 0 0 8px; }
   #face-now {
     font-family: var(--face-font);
@@ -65,10 +65,10 @@
     word-break: break-word;
   }
   #face-caption { color: var(--dim); margin: 4px 0 10px; }
-  #face-slots { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
-  #face-slots button { max-width: 18em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #face-slots button.selected { border-color: var(--value); }
-  #face-slots button.live { color: var(--on); border-color: var(--on); }
+  #face-slots, #hat-slots { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+  #face-slots button, #hat-slots button { max-width: 18em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #face-slots button.selected, #hat-slots button.selected { border-color: var(--value); }
+  #face-slots button.live, #hat-slots button.live { color: var(--on); border-color: var(--on); }
   input.showing { border-color: var(--on); }
   button, input {
     font: inherit;
@@ -179,11 +179,17 @@
   </section>
   <section id="hats">
     <h2>Hats</h2>
-    <p class="hint">A second OBS image, separate from Prompt. Put each picture in the images folder. Center and right show it as drawn. Looking left mirrors it by flipping the image's horizontal scale. The page stores the four pictures and reports the slot. The deck sends hat a, hat b, hat c, hat d, or hat none.</p>
-    <div class="row hat-row"><label>A <select id="hat-a"></select></label><img id="hat-a-preview" alt=""></div>
-    <div class="row hat-row"><label>B <select id="hat-b"></select></label><img id="hat-b-preview" alt=""></div>
-    <div class="row hat-row"><label>C <select id="hat-c"></select></label><img id="hat-c-preview" alt=""></div>
-    <div class="row hat-row"><label>D <select id="hat-d"></select></label><img id="hat-d-preview" alt=""></div>
+    <p class="hint">A second layer, separate from Prompt. Each hat is text, with a left, a center, and a right. It is painted the same way as the face and follows only which way the face looks. Arms and hand gestures stay on the face. The page stores the text and reports the slot. It does not switch the hat. The deck sends hat a through hat h, or hat none.</p>
+    <div id="hat-slots"></div>
+    <div class="face-fields">
+      <label>Left <input id="hat-left" autocomplete="off" spellcheck="false"></label>
+      <label>Center <input id="hat-center" autocomplete="off" spellcheck="false"></label>
+      <label>Right <input id="hat-right" autocomplete="off" spellcheck="false"></label>
+    </div>
+    <div class="row">
+      <button type="button" id="hat-mirror">Mirror center</button>
+      <button type="button" id="hat-swap">Swap left and right</button>
+    </div>
   </section>
 </main>
 <script>
@@ -217,8 +223,9 @@ let arms = {l_up: "\\", l_down: "_", r_up: "/", r_down: "_"};
 let gestures = {enabled: true, items: []};
 let gestureTimer = 0;
 let libraryPath = "";
-let hatPictures = [];
-const HAT_NAMES = ["a", "b", "c", "d"];
+const HAT_NAMES = ["a", "b", "c", "d", "e", "f", "g", "h"];
+let hats = {};
+let hatSlot = "a";
 let faceSlot = "neutral";
 let facesLoaded = false;
 let latest = null;
@@ -314,62 +321,101 @@ function facePayload() {
   };
 }
 
+function emptyHat() {
+  return {left: "", center: "", right: ""};
+}
+
+function storeHatInputs() {
+  hats[hatSlot] = {
+    left: document.getElementById("hat-left").value,
+    center: document.getElementById("hat-center").value,
+    right: document.getElementById("hat-right").value,
+  };
+}
+
 function hatValues() {
-  const hats = {};
+  storeHatInputs();
+  const stored = {};
   for (const name of HAT_NAMES) {
-    const field = document.getElementById("hat-" + name);
-    hats[name] = field ? field.value : "";
+    const entry = hats[name] || emptyHat();
+    stored[name] = {
+      left: entry.left || "",
+      center: entry.center || "",
+      right: entry.right || "",
+    };
   }
-  return hats;
+  return stored;
 }
 
-function hatFileName(value) {
-  const text = value || "";
-  const slash = Math.max(text.lastIndexOf("/"), text.lastIndexOf("\\"));
-  return slash >= 0 ? text.slice(slash + 1) : text;
+function showHatInputs() {
+  const entry = hats[hatSlot] || emptyHat();
+  document.getElementById("hat-left").value = entry.left || "";
+  document.getElementById("hat-center").value = entry.center || "";
+  document.getElementById("hat-right").value = entry.right || "";
 }
 
-function showHatPreview(name) {
-  const field = document.getElementById("hat-" + name);
-  const preview = document.getElementById("hat-" + name + "-preview");
-  const chosen = hatPictures.find((image) => image.name === field.value);
-  if (!chosen) {
-    preview.removeAttribute("src");
-    preview.alt = "";
-    return;
+function markHatChips() {
+  const live = latest && latest.hat;
+  for (const chip of document.querySelectorAll("#hat-slots button")) {
+    chip.classList.toggle("selected", chip.dataset.slot === hatSlot);
+    chip.classList.toggle("live", chip.dataset.slot === live);
+    const center = ((hats[chip.dataset.slot] || {}).center || "").trim();
+    chip.textContent = center ? chip.dataset.label + "  " + center : chip.dataset.label;
   }
-  preview.src = "/api/face-file?path=" + encodeURIComponent(chosen.path);
-  preview.alt = chosen.name;
 }
 
-async function fillHats(saved) {
-  const response = await fetch("/api/face-images");
-  hatPictures = response.ok ? ((await response.json()).images || []) : [];
+function renderHatSlots() {
+  const box = document.getElementById("hat-slots");
+  box.replaceChildren();
+  for (const name of HAT_NAMES) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.dataset.slot = name;
+    chip.dataset.label = name.toUpperCase();
+    chip.addEventListener("click", () => selectHat(name));
+    box.appendChild(chip);
+  }
+  markHatChips();
+}
+
+function selectHat(name) {
+  if (!HAT_NAMES.includes(name) || name === hatSlot) return;
+  storeHatInputs();
+  hatSlot = name;
+  showHatInputs();
+  markHatChips();
+  paintHat();
+}
+
+function fillHats(saved) {
   const stored = saved || {};
+  hats = {};
   for (const name of HAT_NAMES) {
-    const field = document.getElementById("hat-" + name);
-    const selected = hatFileName(stored[name] || "");
-    field.replaceChildren();
-    const empty = document.createElement("option");
-    empty.value = "";
-    empty.textContent = "No picture";
-    field.appendChild(empty);
-    const names = new Set(hatPictures.map((image) => image.name));
-    if (selected && !names.has(selected)) {
-      const extra = document.createElement("option");
-      extra.value = selected;
-      extra.textContent = selected;
-      field.appendChild(extra);
+    const raw = stored[name];
+    if (raw && typeof raw === "object") {
+      hats[name] = {
+        left: raw.left || "",
+        center: raw.center || "",
+        right: raw.right || "",
+      };
+    } else {
+      hats[name] = emptyHat();
     }
-    for (const image of hatPictures) {
-      const option = document.createElement("option");
-      option.value = image.name;
-      option.textContent = image.name;
-      field.appendChild(option);
-    }
-    field.value = selected;
-    showHatPreview(name);
   }
+  showHatInputs();
+  renderHatSlots();
+}
+
+function hatPaintSide(entry, look) {
+  const direction = look === "left" || look === "right" ? look : "center";
+  const order = [direction];
+  for (const side of ["left", "center", "right"]) {
+    if (!order.includes(side)) order.push(side);
+  }
+  for (const side of order) {
+    if ((entry[side] || "").trim()) return side;
+  }
+  return direction;
 }
 
 function showTiming() {
@@ -470,7 +516,7 @@ function paintMute() {
 function paintHat() {
   const report = document.getElementById("hat-state");
   const value = latest && latest.hat;
-  if (value === "a" || value === "b" || value === "c" || value === "d") {
+  if (HAT_NAMES.includes(value)) {
     report.textContent = "Hat: " + value.toUpperCase();
     report.className = "on";
   } else if (value === "none") {
@@ -480,6 +526,13 @@ function paintHat() {
     report.textContent = "Hat: waiting";
     report.className = "";
   }
+  const entry = hats[hatSlot] || emptyHat();
+  const side = hatPaintSide(entry, latest && latest.look);
+  const showing = value === hatSlot;
+  for (const name of ["left", "center", "right"]) {
+    document.getElementById("hat-" + name).classList.toggle("showing", showing && name === side);
+  }
+  markHatChips();
 }
 
 function paint() {
@@ -515,7 +568,7 @@ async function loadFaces() {
   document.getElementById("arm-r-up").value = arms.r_up ?? "/";
   document.getElementById("arm-r-down").value = arms.r_down ?? "_";
   fillGestures(payload.gestures);
-  await fillHats(payload.hats || {});
+  fillHats(payload.hats || {});
   facesLoaded = true;
   showFaceInputs();
   showTiming();
@@ -567,7 +620,7 @@ async function putFaces() {
   arms = payload.arms || arms;
   if (payload.gestures) gestures = payload.gestures;
   libraryPath = payload.library || libraryPath;
-  if (payload.hats) await fillHats(payload.hats);
+  if (payload.hats) fillHats(payload.hats);
 }
 
 async function saveFaces() {
@@ -604,12 +657,19 @@ function insertChar(ch) {
   const caret = start + ch.length;
   input.focus();
   input.setSelectionRange(caret, caret);
-  storeFaceInputs();
-  if (activeField.startsWith("gesture-")) {
+  if (activeField.startsWith("hat-")) {
+    storeHatInputs();
+    markHatChips();
     setFaceStatus("saving");
     queueGestureSave();
   } else {
-    setFaceStatus("copied");
+    storeFaceInputs();
+    if (activeField.startsWith("gesture-")) {
+      setFaceStatus("saving");
+      queueGestureSave();
+    } else {
+      setFaceStatus("copied");
+    }
   }
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(ch).catch(() => {});
@@ -663,13 +723,44 @@ async function refreshMouth() {
   }
 }
 
-document.getElementById("hats").addEventListener("change", (event) => {
-  if (!event.target.matches("select")) return;
-  showHatPreview(event.target.id.slice("hat-".length));
-  if (!facesLoaded) return;
+async function mirrorHat() {
+  try {
+    const payload = await mirrorText(document.getElementById("hat-center").value);
+    document.getElementById("hat-left").value = payload.left;
+    storeHatInputs();
+    markHatChips();
+    setFaceStatus("saving");
+    queueGestureSave();
+  } catch (error) {
+    setFaceStatus(error.message);
+  }
+}
+
+function swapHatSides() {
+  const left = document.getElementById("hat-left");
+  const right = document.getElementById("hat-right");
+  const held = left.value;
+  left.value = right.value;
+  right.value = held;
+  storeHatInputs();
+  markHatChips();
   setFaceStatus("saving");
   queueGestureSave();
-});
+}
+
+document.getElementById("hat-mirror").addEventListener("click", mirrorHat);
+document.getElementById("hat-swap").addEventListener("click", swapHatSides);
+for (const id of ["hat-left", "hat-center", "hat-right"]) {
+  const input = document.getElementById(id);
+  input.addEventListener("focus", () => { activeField = id; });
+  input.addEventListener("input", () => {
+    storeHatInputs();
+    markHatChips();
+    if (!facesLoaded) return;
+    setFaceStatus("saving");
+    queueGestureSave();
+  });
+}
 
 document.getElementById("mouth-toggle").addEventListener("click", async () => {
   const response = await fetch("/api/mouth", {

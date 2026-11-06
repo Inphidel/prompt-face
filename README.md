@@ -133,6 +133,10 @@ hat a
 hat b
 hat c
 hat d
+hat e
+hat f
+hat g
+hat h
 hat none
 status
 ping
@@ -144,9 +148,9 @@ ping
 
 The same change goes to Advanced Scene Switcher as the message `muted=on` or `muted=off`. A macro there can mute the OBS audio source. Match those words exactly. Prompt Face leaves the microphone alone so OBS can keep hearing it. The reply includes `muted=on` or `muted=off`. A custom emote still replaces the whole line until it is cleared. The mute flag, the page report, and the OBS message stay on either way.
 
-`hat a`, `hat b`, `hat c`, and `hat d` show that saved picture on the separate hat image. `hat none` hides it. Prompt's text face does not change. Center and right show the picture as drawn. A look to the left mirrors it by making the horizontal scale negative, and the size stays the same. The expression page stores the four pictures. It reports the slot and does not switch it.
+`hat a` through `hat h` show that saved text on the separate hat layer. `hat none` hides it. Prompt's text face does not change. Each hat has a left, a center, and a right, like a face. The look picks the side. An empty side falls back to the center. Arms and hand gestures stay on the face. The expression page stores the text. It reports the slot and does not switch it.
 
-The bridge adds an OBS scene named Prompt Hat and an image source named Hat inside it. Add that scene as a source in the scene where the hair should sit, and place it there. Later connections leave that placement alone.
+The bridge adds an OBS scene named Prompt Hat and an image source named Hat inside it. The hat is painted in the same panel and font as Prompt, with no arms. Add that scene as a source in the scene where the hair should sit, and place it there. Later connections leave that placement alone. A hat that was mirrored by an older left look is set back to a positive horizontal scale, and the size stays. Match the hat scene's scale to Prompt when the letters should be the same size.
 
 `status` answers with the mouth, the mute, the hat, and the face that is on screen. The face text is everything after `line=`:
 
@@ -158,7 +162,7 @@ ok mouth=jaw hearing=no muted=off mode=live expression=closed hat=none line=( â€
 
 `hearing=yes` means the capture is running. `hearing=no` means the capture is closed. Mute does not change that.
 
-The Companion module for these buttons is https://github.com/Inphidel/companion-module-prompt-face . Its presets replace a raw TCP button: mute, a key that shows the live face, a hold-to-show emote, a toggle emote that stays until the next press, and hat slots A through D plus none.
+The Companion module for these buttons is https://github.com/Inphidel/companion-module-prompt-face . Its presets replace a raw TCP button: mute, a key that shows the live face, a hold-to-show emote, a toggle emote that stays until the next press, and hat slots A through H plus none.
 
 ```bash
 printf 'mouth toggle\n' | nc 192.168.1.20 8772
@@ -214,7 +218,7 @@ The package is `face_state`. Comments at the top of each module describe that st
 4. `reduce.py` turns scores into stable names. Each label has an enter line, a lower exit line, and a short hold so a value on the boundary does not flicker.
 5. `textface.py` picks the face string, the arm marks, or a whole-line emote. A mute flag picks the muted slot before the camera expression.
 6. `paint.py` draws that line in the middle of a 1400 by 180 panel. The font size stays put. Arms grow outward and clip at the edge.
-7. `obs_bridge.py` writes the panel into the OBS image source and can message Advanced Scene Switcher. It also keeps a second image, Hat, in a scene named Prompt Hat. Looking left flips only that image's horizontal scale.
+7. `obs_bridge.py` writes the panel into the OBS image source and can message Advanced Scene Switcher. It also paints a second image, Hat, in a scene named Prompt Hat. That image follows the look and has no arms.
 8. `voice.py` reads the microphone with `pw-record` only while the mouth source is sound. Closing sound mode stops that process. Its mute flag does not call a volume control.
 9. `command_server.py` listens on TCP port 8772 for mouth, mute, emote, and hat lines from another computer.
 10. `author.py` serves the expression page on localhost.
@@ -232,7 +236,7 @@ The package is `face_state`. Comments at the top of each module describe that st
 | smile | off, on |
 | eyes | open, blink, closed |
 | look | left, center, right |
-| hat | a, b, c, d, none |
+| hat | a through h, or none |
 | head | up, level, down |
 | arm_l, arm_r | down, up, missing |
 | hand_l, hand_r | off, face |

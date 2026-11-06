@@ -203,7 +203,7 @@ def loop(config: dict, hub: Hub, loop: asyncio.AbstractEventLoop, stop: threadin
     mouth_was = mouth.source()
     muted_was = None
     hat_was = None
-    hat_file_was = None
+    hat_text_was = None
     deadline = time.monotonic() + seconds if seconds else None
     last_print = 0.0
     last_stamp = 0
@@ -272,14 +272,21 @@ def loop(config: dict, hub: Hub, loop: asyncio.AbstractEventLoop, stop: threadin
                 muted_was = muted
             state["muted"] = muted
             board.apply(state)
-            # The hat is a second OBS image. The text face above is unchanged.
-            hat = board.hat_view()
-            if hat["slot"] != hat_was or hat["file"] != hat_file_was:
+            # The hat is a second painted layer. It follows look only.
+            # The text face above still owns arms and hand gestures.
+            look = state.get("look") if state.get("look") in ("left", "center", "right") else "center"
+            hat = board.hat_view(look)
+            text_changed = hat["text"] != hat_text_was
+            slot_changed = hat["slot"] != hat_was
+            # A look change is already in changed, and that is what repaints
+            # the hat. Announce the slot when it changes, or when the text
+            # changes without a look change, so the line is not sent twice.
+            if slot_changed or (text_changed and "look" not in (state.get("changed") or [])):
                 state["changed"] = [*(state.get("changed") or []), "hat"]
-                hat_was = hat["slot"]
-                hat_file_was = hat["file"]
+            hat_was = hat["slot"]
+            hat_text_was = hat["text"]
             state["hat"] = hat["slot"]
-            state["hat_file"] = hat["file"]
+            state["hat_text"] = hat["text"]
             state["t"] = round(time.time(), 3)
             loop.call_soon_threadsafe(hub.publish, state)
             now = time.monotonic()

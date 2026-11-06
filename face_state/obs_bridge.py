@@ -6,12 +6,14 @@ at a fixed font size. Once the source is centered and has no fit-to-box
 bounds, later connections leave its position, scale, and rotation alone.
 Stretch or rotate it in OBS. That is the only size change.
 
-A second image, Hat, lives in its own scene, Prompt Hat. Center and right
-show that picture as drawn. A look to the left flips only its horizontal
-scale. Prompt's placement is left alone.
+A second image, Hat, lives in its own scene, Prompt Hat. It is painted
+the same way as the face, from the left, center, or right text of the
+chosen hat. Only the look picks that side. Arms stay on Prompt. The
+bridge does not move a hat that has already been placed.
 
 OBS does not reload an image when the path stays the same, so the bridge
-alternates panel/prompt-a.png and panel/prompt-b.png.
+alternates panel/prompt-a.png and panel/prompt-b.png, and the hat uses
+panel/hat-a.png and panel/hat-b.png.
 
 Each changed state is also sent to Advanced Scene Switcher as a message
 such as "mouth=open" or "muted=on", which a macro can match. The websocket
@@ -32,6 +34,7 @@ import websockets
 
 from face_state.paint import paint_panel
 from face_state.reduce import DETAIL, FIELDS
+from face_state.textface import HAT_NAMES
 
 SCENE = "Avatar"
 FACE_TEXT = "Face text"
@@ -113,13 +116,17 @@ def visual_center(transform: dict) -> tuple[float, float]:
     return cx, cy
 
 
-def hat_scale(scale_x: float, look: str) -> float:
-    """Keep the size. Left looks use a negative horizontal scale, which mirrors."""
-    magnitude = abs(float(scale_x))
+def upright_scale(scale_x) -> float | None:
+    """Undo a leftover left-look mirror. A positive scale is left alone."""
+    try:
+        value = float(scale_x)
+    except (TypeError, ValueError):
+        return None
+    if value >= -0.0001:
+        return None
+    magnitude = abs(value)
     if magnitude < 0.01:
         magnitude = 1.0
-    if look == "left":
-        return -magnitude
     return magnitude
 
 
@@ -170,6 +177,8 @@ class Obs:
         self._paint_key = None
         self._hat_ready = False
         self._hat_note = None
+        self._hat_flip = False
+        self._hat_paint_key = None
 
     async def connect(self) -> None:
         self.ws = await websockets.connect(self.url)
@@ -545,7 +554,8 @@ class Obs:
         })
         if current["requestStatus"]["result"]:
             transform = current["responseData"]["sceneItemTransform"]
-            # Center alignment keeps a later horizontal flip in place.
+            # Center alignment keeps the painted text in place. Later
+            # connections do not write this transform again.
             transform["alignment"] = 0
             transform["boundsType"] = "OBS_BOUNDS_NONE"
             transform["boundsAlignment"] = 0
@@ -564,29 +574,44 @@ class Obs:
         print(f"hat image created in scene {HAT_SCENE}", flush=True)
 
     async def show_hat(self, state: dict) -> None:
-        """Point the hat image at the chosen file and mirror it when looking left."""
+        """Paint the hat text for the current look. Arms stay on the face."""
         await self.ensure_hat()
         if not self._hat_ready:
             return
-        slot = state.get("hat") if state.get("hat") in ("a", "b", "c", "d", "none") else "none"
-        picture = state.get("hat_file") if isinstance(state.get("hat_file"), str) else ""
-        visible = slot in ("a", "b", "c", "d") and bool(picture)
-        note = (slot, Path(picture).name if picture else "", visible)
-        if note != self._hat_note:
-            if slot in ("a", "b", "c", "d") and not picture:
-                print(f"hat {slot} has no picture", flush=True)
-            else:
-                print(f"hat {slot}", flush=True)
-            self._hat_note = note
-        if visible:
+        slot = state.get("hat") if isinstance(state.get("hat"), str) else "none"
+        if slot not in (*HAT_NAMES, "none"):
+            slot = "none"
+        text = state.get("hat_text") if isinstance(state.get("hat_text"), str) else ""
+        text = text.replace("\n", " ").replace("\r", "")
+        visible = slot in HAT_NAMES and bool(text.strip())
+        if slot != self._hat_note:
+            print(f"hat {slot}", flush=True)
+            self._hat_note = slot
+        key = (text, self.font_px, self.outline_px, self.fill, self.stroke) if visible else None
+        if visible and key != self._hat_paint_key:
+            self._hat_flip = not self._hat_flip
+            path = PANEL_DIR / ("hat-a.png" if self._hat_flip else "hat-b.png")
+            paint_panel(
+                text,
+                "",
+                "",
+                path,
+                font_px=self.font_px,
+                outline=self.outline_px,
+                fill=self.fill,
+                stroke=self.stroke,
+            )
             updated = await self.request("SetInputSettings", {
                 "inputName": HAT,
-                "inputSettings": {"file": picture},
+                "inputSettings": {"file": str(path)},
                 "overlay": True,
             })
             if not updated["requestStatus"]["result"]:
-                print(f"hat picture was not updated: {updated['requestStatus']}", flush=True)
-        look = state.get("look") if state.get("look") in ("left", "center", "right") else "center"
+                print(f"hat was not painted: {updated['requestStatus']}", flush=True)
+            else:
+                self._hat_paint_key = key
+        elif not visible:
+            self._hat_paint_key = None
         for scene, item_id in await self.hat_items():
             current = await self.request("GetSceneItemTransform", {
                 "sceneName": scene,
@@ -594,18 +619,18 @@ class Obs:
             })
             if current["requestStatus"]["result"]:
                 transform = current["responseData"]["sceneItemTransform"]
-                scale_x = hat_scale(float(transform.get("scaleX") or 1), look)
+                scale_x = upright_scale(transform.get("scaleX"))
                 # Send only the horizontal scale. Writing the whole transform
                 # back fails when OBS reports a bounds size of zero, and it
                 # would also move a hat the user had placed.
-                if abs(scale_x - float(transform.get("scaleX") or 0)) > 0.0001:
+                if scale_x is not None:
                     moved = await self.request("SetSceneItemTransform", {
                         "sceneName": scene,
                         "sceneItemId": item_id,
                         "sceneItemTransform": {"scaleX": scale_x},
                     })
                     if not moved["requestStatus"]["result"]:
-                        print(f"hat was not flipped: {moved['requestStatus']}", flush=True)
+                        print(f"hat scale was not set: {moved['requestStatus']}", flush=True)
             await self.request("SetSceneItemEnabled", {
                 "sceneName": scene,
                 "sceneItemId": item_id,
@@ -659,7 +684,7 @@ async def run() -> None:
                     else:
                         changed = [
                             name for name in (state.get("changed") or [])
-                            if name not in ("text", "text_slot", "image", "image_side") and isinstance(state.get(name), str)
+                            if name not in ("text", "text_slot", "image", "image_side", "hat_text") and isinstance(state.get(name), str)
                         ]
                     first = False
                     now = time.monotonic()

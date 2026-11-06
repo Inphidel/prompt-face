@@ -25,9 +25,7 @@ switches to the muted slot, and Advanced Scene Switcher hears
     emote --clear
     clear
     hat a
-    hat b
-    hat c
-    hat d
+    hat h
     hat none
     status
     ping
@@ -35,8 +33,8 @@ switches to the muted slot, and Advanced Scene Switcher hears
 ``mouth`` with no word toggles. ``mouth on`` is sound and ``mouth off`` is
 jaw. ``emote TEXT`` stays on the face until ``clear``. ``emote toggle TEXT``
 shows that face, and the same line again clears it. ``hat a`` through
-``hat d`` choose a picture for the separate hat image. ``hat none``
-hides it. The text face is unchanged. When ``command.token`` is set,
+``hat h`` choose a text hat on the separate layer. ``hat none`` hides
+it. The text face is unchanged. When ``command.token`` is set,
 the line starts with that word:
 
     secret mouth sound

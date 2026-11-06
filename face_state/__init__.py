@@ -10,8 +10,9 @@ One frame moves through four steps, all on this machine:
    emote replaces the whole line.
 3. The painter draws the line in the middle of a fixed-size panel. A longer
    line does not change the letter size.
-4. The OBS bridge puts that panel in an image source. Stretch and rotate
-   the source in OBS when the face should grow, shrink, or tilt.
+4. The OBS bridge puts that panel in an image source. A second image,
+   Hat, is painted the same way and follows only the look. Stretch and
+   rotate either source in OBS when it should grow, shrink, or tilt.
 
 The microphone stays closed until a command selects sound. That command
 can arrive on the TCP command port from another computer. The expression
