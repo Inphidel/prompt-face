@@ -65,6 +65,8 @@ PipeWire lets more than one program record a source. Prompt Face does not take t
 
 The once-a-second tracker line prints `voice=` while sound mode is on.
 
+In sound mode, talk and shout still show while the eyes are closed, blinking, or covered, and while the camera has lost the face. A quiet microphone returns to those faces. Jaw mode still lets closed eyes win. Mute and a custom emote still replace the line.
+
 ### OBS
 
 In OBS, turn on Tools, WebSocket Server Settings, and set a password. Put that password in `~/.config/face-state/obs.json`:

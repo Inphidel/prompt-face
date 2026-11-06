@@ -168,15 +168,6 @@ class Reducer:
             return neutral
         return low
 
-    def _rest_face(self) -> None:
-        self._mouth.set_now("closed")
-        self._smile.set_now("off")
-        self._eyes.set_now("open")
-        self._look.set_now("center")
-        self._head.set_now("level")
-        self._shut_frames = 0
-        self._blink_left = 0
-
     def _level_target(self, state: str, value: float, band: dict, on: str, off: str) -> str:
         """Turn a score into on or off. The exit line is below the enter line."""
         if state == on:
@@ -289,16 +280,32 @@ class Reducer:
 
         face = self._face.propose("absent" if face_sample is None else "present")
         if face == "absent":
-            self._rest_face()
+            # Keep the microphone mouth. A missing camera cannot see the jaw,
+            # and sound mode does not need it.
+            self._smile.set_now("off")
+            self._eyes.set_now("open")
+            self._look.set_now("center")
+            self._head.set_now("level")
+            self._shut_frames = 0
+            self._blink_left = 0
+            voice_score = None
+            if mouth_source == "sound" and voice is not None:
+                self._mouth.hold = 1
+                self._mouth.propose(mouth_from_level(
+                    voice, self._mouth.value, self.voice_quiet, self.voice_loud,
+                ))
+                voice_score = round(float(voice), 4)
+            else:
+                self._mouth.set_now("closed")
             current = {
                 "face": "absent",
-                "mouth": "closed",
+                "mouth": self._mouth.value,
                 "smile": "off",
                 "eyes": "open",
                 "look": "center",
                 "head": "level",
             }
-            scores = {}
+            scores = {} if voice_score is None else {"voice": voice_score}
         elif face_sample is None:
             current = {name: self._published[name] for name in ("face", "mouth", "smile", "eyes", "look", "head")}
             scores = {}

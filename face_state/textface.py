@@ -2,9 +2,12 @@
 
 Slots in textfaces.json are the character. Closed eyes, a blink, a smile,
 a wide mouth, and an open mouth each have a slot, and the rest use neutral.
-A mute flag uses the muted slot instead, with a lowercase x for the mouth
-unless that slot was edited. Looking left or right uses that side of the
-slot. An empty side falls back to the center.
+Sound mode uses talk or shout whenever the microphone mouth is open or
+wide, including while the eyes are closed or the camera has lost the face.
+A quiet microphone still shows those other faces. Jaw mode still prefers
+closed eyes. A mute flag uses the muted slot instead, with a lowercase x
+for the mouth unless that slot was edited. Looking left or right uses that
+side of the slot. An empty side falls back to the center.
 
 Arms always have a mark unless a hand is on the face. A hand on one side
 clears that side only. Thumbs-up, peace, point, and open replace the arm
@@ -53,12 +56,14 @@ GESTURE_DEFAULTS = {
     "point": {"left": "👈", "right": "👉"},
     "open": {"left": "✋", "right": "✋"},
 }
+# A wide mouth shouts even when the camera sees a smile. An open mouth
+# talks. A smile shows only while the mouth is closed.
 SLOT_ORDER = (
     ("closed", "eyes", "closed"),
     ("blink", "eyes", "blink"),
-    ("smile", "smile", "on"),
     ("shout", "mouth", "wide"),
     ("talk", "mouth", "open"),
+    ("smile", "smile", "on"),
 )
 DEFAULT_TEXT = {
     "absent": "(✖╭╮✖)",
@@ -612,6 +617,18 @@ def wrap_arms(text: str, state: dict, arms: dict, gestures: dict, slot: str) -> 
     return f"{left}{text}{right}", left, right
 
 
+def _sound_mouth_slot(state: dict) -> str | None:
+    """Talk or shout from the microphone. None when the mouth is closed."""
+    if state.get("mouth_source") != "sound":
+        return None
+    mouth = state.get("mouth")
+    if mouth == "wide":
+        return "shout"
+    if mouth == "open":
+        return "talk"
+    return None
+
+
 def choose(state: dict, bindings: dict) -> tuple[str, str, str, str]:
     """Return the face text, slot, image path, and side."""
     slots = bindings.get("slots") or {}
@@ -620,6 +637,13 @@ def choose(state: dict, bindings: dict) -> tuple[str, str, str, str]:
         direction = "center" if state.get("face") == "absent" else direction_of(state)
         text, image, side = _pick(slots.get("muted"), direction, library)
         return text, "muted", resolve_image(image, library), side
+    # The microphone does not care that the eyes are closed or the camera
+    # has lost the face. Those slots still show while the mouth is quiet.
+    heard = _sound_mouth_slot(state)
+    if heard:
+        direction = "center" if state.get("face") == "absent" else direction_of(state)
+        text, image, side = _pick(slots.get(heard), direction, library)
+        return text, heard, resolve_image(image, library), side
     cover = cover_name(state)
     if cover and _has_face(slots.get(cover), library):
         direction = "center" if state.get("face") == "absent" else direction_of(state)
