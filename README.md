@@ -49,7 +49,7 @@ That writes launchers only on this machine. Run it again if you move the project
 
 ### Camera
 
-In `config.json`, `camera.device` is the webcam. Leave `/dev/video0` if that is the camera you want. `width`, `height`, `fps`, and `fourcc` are requested from V4L2. `MJPG` at `1280x720` is a reliable starting point.
+In `config.json`, `camera.device` is the webcam. `/dev/video0` is fine when that node is the camera you want. Two identical webcams make that number move. A path under `/dev/v4l/by-id/` that ends in `-video-index0` stays on one physical camera. If the saved path is missing, Prompt prints those links and exits instead of guessing. `width`, `height`, `fps`, and `fourcc` are requested from V4L2. `MJPG` at `1280x720` is a reliable starting point.
 
 `listen` is the state WebSocket, default `127.0.0.1:8770`. `author.listen` is the expression page, default `127.0.0.1:8771`. Keep both on localhost. `command.listen` is the network command port, default `0.0.0.0:8772`. That is the port another computer uses.
 

@@ -156,13 +156,17 @@ def _fmt(value, spec: str) -> str:
 
 def loop(config: dict, hub: Hub, loop: asyncio.AbstractEventLoop, stop: threading.Event, seconds: float | None, composer: Composer, board: TextBoard, mouth: MouthControl) -> None:
     camera_cfg = config["camera"]
-    camera = Camera(
-        camera_cfg["device"],
-        int(camera_cfg["width"]),
-        int(camera_cfg["height"]),
-        int(camera_cfg["fps"]),
-        camera_cfg["fourcc"],
-    )
+    try:
+        camera = Camera(
+            camera_cfg["device"],
+            int(camera_cfg["width"]),
+            int(camera_cfg["height"]),
+            int(camera_cfg["fps"]),
+            camera_cfg["fourcc"],
+        )
+    except RuntimeError as error:
+        print(error, flush=True)
+        os._exit(1)
     print(
         f"camera {camera.device} {camera.width}x{camera.height} {camera.fourcc} "
         f"at {camera.fps:.0f} fps",
